@@ -1,0 +1,31 @@
+# ABB RAPID Mock Controller — FOROS Simulator Pipeline
+# =====================================================================
+# Ports:  6084→noVNC | 5903→VNC | 7001→TCP RAPID | 8767→HTTP feedback
+# Démarrage: docker compose -f simulators/abb/docker-compose.abb.yml up --build
+# =====================================================================
+services:
+  foros_abb:
+    build:
+      context: ./abb_mock_controller
+      dockerfile: Dockerfile
+    container_name: foros_abb_controller
+    cpus: "0.5"
+    mem_limit: "512m"
+    ports:
+      - "6084:6084"
+      - "5903:5903"
+      - "7001:7001"
+      - "8767:8767"
+    volumes:
+      - abb_programs:/app/programs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8767/api/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  abb_programs:
+    name: foros_abb_programs

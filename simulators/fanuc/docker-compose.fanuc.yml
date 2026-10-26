@@ -1,0 +1,28 @@
+# Fanuc Karel Mock Controller — FOROS Simulator Pipeline
+# Ports:  6085→noVNC | 5904→VNC | 7002→TCP Karel | 8768→HTTP feedback
+services:
+  foros_fanuc:
+    build:
+      context: ./fanuc_mock_controller
+      dockerfile: Dockerfile
+    container_name: foros_fanuc_controller
+    cpus: "0.5"
+    mem_limit: "512m"
+    ports:
+      - "6085:6085"
+      - "5904:5904"
+      - "7002:7002"
+      - "8768:8768"
+    volumes:
+      - fanuc_programs:/app/programs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8768/api/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  fanuc_programs:
+    name: foros_fanuc_programs

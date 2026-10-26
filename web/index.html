@@ -1,0 +1,3639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FOROS Action Engine</title>
+    <link rel="icon" type="image/jpeg" href="/favicon.jpg">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Three.js OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-analytics-compat.js"></script>
+
+    <style>
+        :root {
+            --bg-base: #090d16;
+            --bg-panel: rgba(17, 24, 39, 0.7);
+            --border-panel: rgba(255, 255, 255, 0.05);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent-cyan: #06b6d4;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-orange: #f97316;
+            --accent-purple: #a855f7;
+            --accent-yellow: #eab308;
+            --font-main: 'Inter', sans-serif;
+            --font-title: 'Outfit', sans-serif;
+            --font-code: 'Fira Code', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Layout Structure */
+        header {
+            background-color: rgba(10, 15, 30, 0.9);
+            border-bottom: 1px solid var(--border-panel);
+            padding: 0.75rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            z-index: 10;
+            flex-shrink: 0;
+        }
+
+        .header-title-group {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .header-title-group h1 {
+            font-family: var(--font-title);
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo-tag {
+            background: rgba(6, 182, 212, 0.1);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            color: var(--accent-cyan);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            text-transform: uppercase;
+        }
+
+        .status-indicators {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.82rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-panel);
+            padding: 0.35rem 0.75rem;
+            border-radius: 8px;
+        }
+
+        /* Platform Badge in header */
+        .platform-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.82rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(168, 85, 247, 0.4);
+            padding: 0.35rem 0.75rem;
+            border-radius: 8px;
+            color: var(--accent-purple);
+            font-weight: 600;
+            transition: border-color 0.3s, color 0.3s;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .status-dot.connected { color: var(--accent-green); background-color: var(--accent-green); }
+        .status-dot.disconnected { color: var(--accent-red); background-color: var(--accent-red); }
+        .status-dot.simulated { color: var(--accent-orange); background-color: var(--accent-orange); }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 340px 1fr 390px;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            flex-grow: 1;
+            height: calc(100vh - 62px);
+            overflow: hidden;
+        }
+
+        /* General Panel Styles */
+        .glass-panel {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-panel);
+            border-radius: 12px;
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .panel-header {
+            padding: 0.75rem 1.2rem;
+            border-bottom: 1px solid var(--border-panel);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: var(--font-title);
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.01);
+            flex-shrink: 0;
+        }
+
+        .panel-content {
+            padding: 1rem;
+            flex-grow: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+        /* Column 1: Input & Controls */
+        #panel-input { grid-column: 1; }
+
+        .textarea-container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        textarea {
+            width: 100%;
+            height: 90px;
+            background: rgba(10, 15, 30, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: var(--text-primary);
+            padding: 0.75rem;
+            font-family: var(--font-main);
+            font-size: 0.9rem;
+            resize: none;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        textarea:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.15);
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.7rem 1rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.88rem;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+        }
+
+        .btn-cyan {
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 100%);
+            color: #000;
+            font-weight: 700;
+        }
+        .btn-cyan:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
+        }
+
+        .btn-outline {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.07);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .example-chips {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+
+        .chip {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            padding: 0.45rem 0.75rem;
+            font-size: 0.78rem;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.15s ease;
+        }
+
+        .chip:hover {
+            background: rgba(6, 182, 212, 0.05);
+            border-color: rgba(6, 182, 212, 0.2);
+            color: var(--accent-cyan);
+        }
+
+        .controls-card {
+            border-top: 1px solid var(--border-panel);
+            padding-top: 0.85rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .btn-stop {
+            background-color: var(--accent-red);
+            color: white;
+            font-weight: 800;
+            font-size: 1rem;
+            padding: 0.9rem;
+            box-shadow: 0 4px 20px rgba(239, 68, 68, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-stop:hover {
+            background-color: #dc2626;
+            box-shadow: 0 6px 25px rgba(239, 68, 68, 0.6);
+            transform: scale(1.02);
+        }
+
+        /* Column 2: 3D Preview & Telemetry */
+        #panel-simulation {
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .canvas-container {
+            flex-grow: 1;
+            position: relative;
+            background: radial-gradient(circle at center, #111827 0%, #030712 100%);
+            border-bottom: 1px solid var(--border-panel);
+            overflow: hidden;
+        }
+
+        #robot-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .canvas-overlay {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            pointer-events: none;
+            background: rgba(9, 13, 22, 0.8);
+            border: 1px solid var(--border-panel);
+            border-radius: 8px;
+            padding: 0.6rem 1rem;
+            font-size: 0.8rem;
+            backdrop-filter: blur(5px);
+            z-index: 5;
+        }
+
+        .canvas-overlay h4 {
+            color: var(--accent-cyan);
+            margin-bottom: 0.25rem;
+        }
+
+        /* Platform info badge on canvas overlay */
+        .platform-info-tag {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(9, 13, 22, 0.85);
+            border-radius: 8px;
+            padding: 0.5rem 0.85rem;
+            font-size: 0.78rem;
+            font-weight: 600;
+            z-index: 6;
+            border: 1px solid var(--border-panel);
+            backdrop-filter: blur(5px);
+            pointer-events: none;
+            transition: border-color 0.3s, color 0.3s;
+        }
+
+        .telemetry-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            padding: 0.75rem 1rem;
+            gap: 0.75rem;
+            background: rgba(10, 15, 30, 0.5);
+            flex-shrink: 0;
+        }
+
+        .telemetry-col h4 {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .coordinates-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.4rem;
+        }
+
+        .coord-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-panel);
+            border-radius: 6px;
+            padding: 0.35rem;
+            text-align: center;
+        }
+
+        .coord-label { font-size: 0.65rem; color: var(--text-secondary); }
+
+        .coord-val {
+            font-family: var(--font-code);
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .joints-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 0.35rem;
+        }
+
+        .joint-box {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-panel);
+            border-radius: 6px;
+            padding: 0.35rem 0.2rem;
+            text-align: center;
+        }
+
+        .joint-label { font-size: 0.62rem; color: var(--text-secondary); display: block; }
+
+        .joint-val {
+            font-family: var(--font-code);
+            font-size: 0.78rem;
+            font-weight: 500;
+        }
+
+        /* Column 3: Output Code & Log Console */
+        #panel-output { grid-column: 3; }
+
+        .tab-buttons {
+            display: flex;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid var(--border-panel);
+            flex-shrink: 0;
+        }
+
+        .tab-btn {
+            flex-grow: 1;
+            padding: 0.65rem;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.82rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+            font-family: var(--font-title);
+            white-space: nowrap;
+        }
+
+        .tab-btn.active {
+            color: var(--accent-cyan);
+            border-bottom-color: var(--accent-cyan);
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        .code-container {
+            position: relative;
+            flex-grow: 1;
+            min-height: 200px;
+            background: #030712;
+            border-bottom: 1px solid var(--border-panel);
+        }
+
+        pre {
+            width: 100%;
+            height: 100%;
+            padding: 1rem;
+            margin: 0;
+            overflow: auto;
+            color: var(--text-primary);
+            font-family: var(--font-code);
+            font-size: 0.78rem;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            opacity: 0.6;
+            padding: 0.3rem 0.6rem;
+            font-size: 0.72rem;
+            z-index: 2;
+        }
+        .copy-btn:hover { opacity: 1; }
+
+        .console-container {
+            height: 160px;
+            background: rgba(5, 5, 10, 0.9);
+            border-top: 1px solid var(--border-panel);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .console-header {
+            padding: 0.35rem 1rem;
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-panel);
+            display: flex;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.01);
+            flex-shrink: 0;
+        }
+
+        .console-lines {
+            padding: 0.5rem 1rem;
+            flex-grow: 1;
+            overflow-y: auto;
+            font-family: var(--font-code);
+            font-size: 0.72rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+        }
+
+        .log-line { color: var(--text-primary); }
+        .log-line.info { color: #60a5fa; }
+        .log-line.success { color: var(--accent-green); }
+        .log-line.error { color: var(--accent-red); }
+        .log-line.warning { color: var(--accent-orange); }
+
+        /* ── Protocol / Platform Selector (Panel 3) ── */
+        .format-selector-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid var(--border-panel);
+            flex-shrink: 0;
+            gap: 0.5rem;
+        }
+
+        .format-selector-row label {
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        select {
+            background: rgba(10, 15, 30, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            border-radius: 6px;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.78rem;
+            outline: none;
+            flex-grow: 1;
+            transition: border-color 0.25s;
+        }
+        select:focus { border-color: var(--accent-cyan); }
+
+        .btn-send-wrapper {
+            padding: 0.75rem;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        /* ── VNC / Simulator Panel (Panel 2 inner) ── */
+        #vnc-iframe-wrapper {
+            width: 100%;
+            height: 100%;
+            display: none;
+            position: relative;
+        }
+
+        #vnc-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        /* ── Simulator Info Card (dismissible) ── */
+        .sim-info-card {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(9, 13, 22, 0.88);
+            border-radius: 10px;
+            padding: 14px 16px;
+            max-width: 330px;
+            font-size: 0.78rem;
+            z-index: 100;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        .sim-info-card .close-btn {
+            position: absolute;
+            top: 6px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: color 0.15s;
+            outline: none;
+            line-height: 1;
+        }
+        .sim-info-card .close-btn:hover { color: var(--accent-red); }
+
+        .sim-info-card h5 {
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding-right: 18px;
+        }
+
+        .sim-info-card ol {
+            margin-left: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            color: var(--text-primary);
+        }
+
+        .sim-info-card li { line-height: 1.45; }
+
+        /* ── No-simulator placeholder ── */
+        .no-sim-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .no-sim-placeholder .icon { font-size: 3.5rem; opacity: 0.4; }
+        .no-sim-placeholder h3 { font-size: 1.1rem; color: var(--text-primary); opacity: 0.7; }
+        .no-sim-placeholder p { font-size: 0.82rem; max-width: 320px; line-height: 1.6; }
+
+        /* ── Platform color theming ── */
+        .theme-ur    { --platform-color: #06b6d4; }
+        .theme-kuka  { --platform-color: #f97316; }
+        .theme-abb   { --platform-color: #ef4444; }
+        .theme-fanuc { --platform-color: #eab308; }
+        .theme-ros   { --platform-color: #22c55e; }
+        .theme-other { --platform-color: #9ca3af; }
+
+        .sim-info-card h5 { color: var(--platform-color, var(--accent-cyan)); }
+        .sim-info-card { border: 1px solid color-mix(in srgb, var(--platform-color, var(--accent-cyan)) 40%, transparent); }
+        .platform-info-tag { color: var(--platform-color, var(--accent-cyan)); border-color: color-mix(in srgb, var(--platform-color, var(--accent-cyan)) 40%, transparent); }
+
+        /* ── VNC tab highlight on active sim ── */
+        #tab-vnc.has-sim { color: var(--accent-green); }
+        #tab-vnc.no-sim  { color: var(--text-secondary); opacity: 0.5; }
+
+        /* ── Light Mode override ── */
+        body.light-theme {
+            --bg-base: #f1f5f9;
+            --bg-panel: rgba(255, 255, 255, 0.85);
+            --border-panel: rgba(0, 0, 0, 0.08);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --accent-cyan: #0891b2;
+            --accent-blue: #2563eb;
+            --accent-green: #16a34a;
+            --accent-red: #dc2626;
+            --accent-orange: #ea580c;
+            --accent-purple: #9333ea;
+            --accent-yellow: #ca8a04;
+        }
+
+        body.light-theme .glass-panel {
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+        }
+
+        body.light-theme header {
+            background-color: rgba(248, 250, 252, 0.95);
+        }
+
+        body.light-theme textarea {
+            background: #ffffff;
+            color: #0f172a;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+        }
+
+        body.light-theme select {
+            background: #ffffff;
+            color: #0f172a;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+        }
+
+        body.light-theme .format-selector-row {
+            background: rgba(0, 0, 0, 0.02);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        body.light-theme .tab-buttons {
+            background: rgba(0, 0, 0, 0.02);
+        }
+
+        body.light-theme .tab-btn:hover {
+            background: rgba(0, 0, 0, 0.03);
+            color: var(--text-primary);
+        }
+
+        body.light-theme .tab-btn.active {
+            border-bottom-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+            background: rgba(0, 0, 0, 0.01);
+        }
+
+        body.light-theme .code-container pre {
+            background: #f8fafc;
+            color: #0f172a;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        body.light-theme .console-container {
+            background: #f8fafc;
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        body.light-theme .console-header {
+            background: rgba(0, 0, 0, 0.02);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        body.light-theme .btn-outline {
+            background: rgba(0, 0, 0, 0.02);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            color: var(--text-primary);
+        }
+
+        body.light-theme .btn-outline:hover {
+            background: rgba(0, 0, 0, 0.05);
+            border-color: rgba(0, 0, 0, 0.15);
+        }
+
+        body.light-theme .chip {
+            background: rgba(0, 0, 0, 0.02);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            color: var(--text-secondary);
+        }
+
+        body.light-theme .chip:hover {
+            background: rgba(8, 145, 178, 0.08);
+            border-color: rgba(8, 145, 178, 0.2);
+            color: var(--accent-cyan);
+        }
+
+        body.light-theme .sim-info-card {
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        }
+
+        body.light-theme .no-sim-placeholder {
+            background: #f8fafc;
+        }
+
+        body.light-theme .canvas-container {
+            background: radial-gradient(circle at center, #f8fafc 0%, #e2e8f0 100%);
+        }
+
+        body.light-theme .canvas-overlay {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        body.light-theme .platform-info-tag {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        /* ── Platform Dot Style ── */
+        .platform-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            background-color: var(--platform-color, var(--accent-cyan));
+            box-shadow: 0 0 8px currentColor;
+            flex-shrink: 0;
+        }
+
+        /* ── Responsive Styling ── */
+        @media (max-width: 1200px) and (min-width: 901px) {
+            body {
+                overflow-y: auto;
+                height: auto;
+            }
+            .dashboard-grid {
+                grid-template-columns: 1fr 1fr;
+                grid-template-rows: auto auto;
+                height: auto;
+                overflow: visible;
+                padding: 0.5rem;
+                gap: 0.5rem;
+            }
+            #panel-input {
+                grid-column: 1;
+            }
+            #panel-simulation {
+                grid-column: 2;
+                height: 550px;
+            }
+            #panel-output {
+                grid-column: 1 / span 2;
+                height: 650px;
+            }
+        }
+
+        @media (max-width: 900px) {
+            body {
+                overflow-y: auto;
+                height: auto;
+            }
+            header {
+                flex-direction: column;
+                gap: 0.75rem;
+                padding: 1rem;
+                align-items: stretch;
+                text-align: center;
+            }
+            .header-title-group {
+                justify-content: center;
+            }
+            .status-indicators {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 0.5rem;
+            }
+            .status-pill, .platform-badge {
+                flex-grow: 1;
+                justify-content: center;
+            }
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto;
+                height: auto;
+                overflow: visible;
+                padding: 0.5rem;
+                gap: 0.5rem;
+            }
+            #panel-input {
+                grid-column: 1;
+            }
+            #panel-simulation {
+                grid-column: 1;
+                height: 500px;
+            }
+            #panel-output {
+                grid-column: 1;
+                height: 600px;
+            }
+        }
+
+        /* --- Auth Gate Styling --- */
+        #auth-gate {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background: radial-gradient(circle at center, #0b1120 0%, #030712 100%);
+            z-index: 9999;
+            transition: background 0.3s;
+        }
+
+        body.light-theme #auth-gate {
+            background: radial-gradient(circle at center, #f8fafc 0%, #e2e8f0 100%);
+        }
+
+        .auth-card {
+            width: 400px;
+            padding: 2.5rem;
+            border-radius: 16px;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.55);
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-panel);
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .auth-input {
+            background: rgba(10, 15, 30, 0.7);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: var(--text-primary);
+            padding: 0.75rem 0.95rem;
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        body.light-theme .auth-input {
+            background: #ffffff;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+            color: #0f172a;
+        }
+
+        .auth-input:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.15);
+        }
+
+        /* --- DevOps Styles --- */
+        .devops-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 0.25rem;
+        }
+        .devops-bar-bg {
+            flex-grow: 1;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .devops-bar-fill {
+            height: 100%;
+            background: var(--accent-cyan);
+            border-radius: 4px;
+        }
+        body.light-theme .devops-bar-bg {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        
+        .devops-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.8rem;
+        }
+        .devops-table th {
+            padding: 0.5rem;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-panel);
+            color: var(--text-secondary);
+        }
+        .devops-table td {
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--border-panel);
+        }
+        .devops-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* --- Meta SAM 3.1 Vision Grounding & Muse Reasoning Styles --- */
+        .vision-panel-box {
+            background: rgba(6, 15, 28, 0.65);
+            border: 1px solid rgba(6, 182, 212, 0.22);
+            border-radius: 8px;
+            padding: 0.65rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        body.light-theme .vision-panel-box {
+            background: rgba(241, 245, 249, 0.9);
+            border-color: rgba(8, 145, 178, 0.25);
+        }
+        .vision-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+        .vision-title-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.38rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--accent-cyan);
+        }
+        .vision-viewport {
+            position: relative;
+            width: 100%;
+            height: 112px;
+            background: #050a14;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        body.light-theme .vision-viewport {
+            background: #0f172a;
+        }
+        .vision-obj-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.35rem;
+        }
+        .vision-obj-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 0.35rem 0.48rem;
+            cursor: pointer;
+            transition: all 0.18s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0.12rem;
+            text-align: left;
+        }
+        .vision-obj-item:hover {
+            border-color: var(--accent-cyan);
+            background: rgba(6, 182, 212, 0.09);
+        }
+        body.light-theme .vision-obj-item {
+            background: #ffffff;
+            border-color: rgba(0, 0, 0, 0.1);
+        }
+        .vision-obj-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .vision-obj-coords {
+            font-family: var(--font-code);
+            font-size: 0.64rem;
+            color: var(--text-secondary);
+        }
+        .reasoning-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.55rem;
+            padding: 0.25rem 0.1rem;
+        }
+        .reasoning-step-card {
+            background: rgba(255, 255, 255, 0.025);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-left: 3px solid var(--accent-cyan);
+            border-radius: 6px;
+            padding: 0.55rem 0.7rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.22rem;
+        }
+        body.light-theme .reasoning-step-card {
+            background: rgba(0, 0, 0, 0.02);
+            border-color: rgba(0, 0, 0, 0.1);
+            border-left: 3px solid var(--accent-cyan);
+        }
+        .reasoning-step-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+        }
+        .reasoning-step-title {
+            font-size: 0.76rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .reasoning-step-detail {
+            font-size: 0.71rem;
+            color: var(--text-secondary);
+            line-height: 1.35;
+            font-family: var(--font-code);
+        }
+        .svg-icon {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+
+    <header id="app-header" style="display: none;">
+        <div class="header-title-group">
+            <img id="header-logo-img" src="/logo_light.png" style="height: 30px; width: auto;" alt="FOROS">
+            <span id="header-main-title" style="display:none;">FOROS Action Engine</span>
+            <div class="logo-tag" id="logo-tag">V5.5 Industrial</div>
+        </div>
+        <div class="status-indicators">
+            <!-- Active AI Engine Badge (Meta Muse + SAM 3.1 + FOROS) -->
+            <div class="status-pill" id="engine-architecture-pill" style="border-color: rgba(6, 182, 212, 0.45); color: var(--accent-cyan); font-weight: 600;" title="Meta Model API: muse-spark-1.3 + sam-3.1 + muse-voice-transcribe-1.0">
+                <svg class="svg-icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+                <span id="engine-arch-label">META API: MUSE-SPARK-1.3 + SAM-3.1 + VOICE-1.0</span>
+            </div>
+            <!-- Active Platform Badge -->
+            <div class="platform-badge" id="platform-badge">
+                <span id="platform-icon" class="platform-dot"></span>
+                <span id="platform-name-label">Universal Robots</span>
+            </div>
+            <!-- Language Selector Toggle -->
+            <div class="status-pill" style="cursor: pointer; font-weight: 700; border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);" onclick="toggleLanguage()">
+                <span id="lang-text">EN</span>
+            </div>
+            <!-- Theme Toggle -->
+            <div class="status-pill" style="cursor: pointer; font-weight: 700; border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);" onclick="toggleTheme()">
+                <span id="theme-text">THEME: DARK</span>
+            </div>
+            <div class="status-pill">
+                <span class="status-dot simulated" id="mode-dot"></span>
+                <span id="mode-text">Simulation Mode</span>
+            </div>
+            <div class="status-pill">
+                <span class="status-dot connected" id="conn-dot"></span>
+                <span id="conn-text">Robot RTDE: Connected</span>
+            </div>
+            <!-- Logged-in User & Logout -->
+            <div class="status-pill" id="user-info-pill" style="display: none; border-color: rgba(6, 182, 212, 0.2); font-weight: 500;">
+                <span id="user-email-label"></span>
+            </div>
+            <div class="status-pill" id="btn-logout" style="display: none; cursor: pointer; border-color: rgba(239, 68, 68, 0.4); color: var(--accent-red); font-weight: 700;" onclick="logout()">
+                <span>LOGOUT</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="dashboard-grid">
+        <!-- Panel 1: Input -->
+        <section class="glass-panel" id="panel-input">
+            <div class="panel-header">
+                <span id="lbl-directives-title">Natural Directives</span>
+            </div>
+            <div class="panel-content">
+                <div class="textarea-container">
+                    <textarea id="prompt-input" placeholder="Enter a natural language command (e.g., Pick up Aluminum Block A and place it on Inspection Tray D)..."></textarea>
+                    <div style="display: flex; gap: 0.45rem;">
+                        <button class="btn btn-cyan" id="btn-generate" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.45rem;">
+                            <svg class="svg-icon" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            <span id="lbl-btn-generate">Generate Action</span>
+                        </button>
+                        <button class="btn btn-outline" id="btn-voice-ptt" onclick="toggleVoiceRecording()" title="Push-to-Talk Voice Command (Meta muse-voice-transcribe-1.0)" style="padding: 0.65rem 0.8rem; display: flex; align-items: center; justify-content: center; gap: 0.35rem; border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);">
+                            <svg class="svg-icon" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                            <span id="lbl-voice-btn" style="font-size: 0.72rem; font-weight: 700;">VOICE</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Meta SAM 3.1 Workspace Perception Module -->
+                <div class="vision-panel-box" id="sam-vision-box">
+                    <div class="vision-header-row">
+                        <span class="vision-title-badge">
+                            <svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
+                            <span id="lbl-sam-title">SAM 3.1 Workcell Perception</span>
+                        </span>
+                        <button class="btn btn-outline" id="btn-sam-scan" onclick="scanWorkspaceSAM()" style="padding: 0.24rem 0.55rem; font-size: 0.68rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+                            <svg class="svg-icon" style="width:12px;height:12px;" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                            <span id="lbl-sam-scan">Scan Workcell</span>
+                        </button>
+                    </div>
+                    <div class="vision-viewport" id="sam-viewport">
+                        <svg id="sam-svg-overlay" viewBox="0 0 360 112" width="100%" height="100%" preserveAspectRatio="none">
+                            <defs>
+                                <pattern id="samGrid" width="24" height="24" patternUnits="userSpaceOnUse">
+                                    <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(6, 182, 212, 0.12)" stroke-width="0.7"/>
+                                </pattern>
+                            </defs>
+                            <rect width="360" height="112" fill="url(#samGrid)"/>
+                            <!-- Robot Base Origin Crosshair -->
+                            <circle cx="180" cy="56" r="14" fill="none" stroke="rgba(148, 163, 184, 0.35)" stroke-dasharray="3,2" stroke-width="1"/>
+                            <line x1="172" y1="56" x2="188" y2="56" stroke="rgba(148, 163, 184, 0.5)" stroke-width="1"/>
+                            <line x1="180" y1="48" x2="180" y2="64" stroke="rgba(148, 163, 184, 0.5)" stroke-width="1"/>
+                            <text x="184" y="52" fill="#94a3b8" font-size="7" font-family="JetBrains Mono, monospace">UR5e BASE (0,0)</text>
+                            <g id="sam-masks-group"></g>
+                        </svg>
+                    </div>
+                    <div class="vision-obj-list" id="sam-objects-list"></div>
+                </div>
+                
+                <h4 id="lbl-example-tasks" style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-top: 0.25rem;">Example Tasks</h4>
+                <div class="example-chips">
+                    <button class="chip" id="chip-pick-place" onclick="loadPrompt('pick up workpiece at x=0.3 y=-0.2 z=0.2 and place it at x=-0.3 y=0.3 z=0.2')">
+                        Composed Pick &amp; Place
+                    </button>
+                    <button class="chip" id="chip-safety" onclick="loadPrompt('if collision then stop. transition to ERROR_RECOVERY: go home, open gripper')">
+                        Error Detection &amp; FSM
+                    </button>
+                    <button class="chip" id="chip-repeat" onclick="loadPrompt('repeat 3 times: move to x=0.2 y=-0.1 z=0.4 then wait 1.0s')">
+                        3x Repeat Loop
+                    </button>
+                    <button class="chip" id="chip-control" onclick="loadPrompt('run control loop at 50Hz for 3.0 seconds doing move to x=0.2 y=0.2 z=0.4')">
+                        50Hz Feedback Loop
+                    </button>
+                    <button class="chip" id="chip-patrol" onclick="loadPrompt('patrol: set speed 0.4, move to x=0.4 y=0.0 z=0.3, move to x=0.4 y=0.4 z=0.3, then go home')">
+                        Multi-point Patrol
+                    </button>
+                </div>
+
+                <div class="controls-card">
+                    <button class="btn btn-stop" id="btn-stop">Emergency Stop</button>
+                    <button class="btn btn-outline" id="btn-home">Return Home Position</button>
+                    <button class="btn btn-outline" id="btn-power">Power / Release Brakes</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Panel 2: Simulation & Telemetry -->
+        <section class="glass-panel" id="panel-simulation">
+            <div class="panel-header">
+                <span id="lbl-telemetry-header">3D Simulation &amp; Real-time Telemetry</span>
+            </div>
+            
+            <div class="tab-buttons">
+                <button class="tab-btn active" id="tab-3d" onclick="switchSimTab('3d')">3D Render</button>
+                <button class="tab-btn has-sim" id="tab-vnc" onclick="switchSimTab('vnc')">VNC Simulator</button>
+                <button class="tab-btn" id="tab-devops" style="display: none;" onclick="switchSimTab('devops')">DevOps Panel</button>
+            </div>
+            
+            <div class="canvas-container">
+                <!-- 3D Robot View -->
+                <div id="robot-canvas-wrapper" style="width: 100%; height: 100%;">
+                    <div class="canvas-overlay">
+                        <h4 id="lbl-cam-title">Free 3D Camera</h4>
+                        <span id="lbl-cam-instr" style="font-size: 0.72rem; color: var(--text-secondary)">Click &amp; drag to rotate | Scroll to zoom</span>
+                    </div>
+                    <!-- Platform tag on 3D view -->
+                    <div class="platform-info-tag theme-ur" id="platform-3d-tag">
+                        <span id="platform-3d-icon" class="platform-dot"></span>
+                        <span id="platform-3d-name">Universal Robots UR5e</span>
+                    </div>
+                    <div id="robot-canvas"></div>
+                </div>
+
+                <!-- VNC / Simulator View -->
+                <div id="vnc-iframe-wrapper">
+                    <!-- Dismissible setup card – rebuilt per platform -->
+                    <div class="sim-info-card theme-ur" id="sim-info-card">
+                        <button class="close-btn" onclick="dismissSimCard()" title="Fermer">&times;</button>
+                        <h5 id="sim-card-title">Configuration URSim Requise</h5>
+                        <ol id="sim-card-steps">
+                            <li id="sim-step-1">...</li>
+                            <li id="sim-step-2">...</li>
+                            <li id="sim-step-3">...</li>
+                        </ol>
+                    </div>
+
+                    <!-- No-simulator placeholder (shown when platform has no VNC URL) -->
+                    <div id="no-sim-placeholder" class="no-sim-placeholder" style="display:none;">
+                        <div class="icon" style="font-size: 2.5rem; opacity: 0.3; margin-bottom: 0.5rem;">VNC</div>
+                        <h3 id="no-sim-title">Simulateur non disponible</h3>
+                        <p id="no-sim-desc">Ce protocole n'a pas d'interface VNC dédiée. Utilisez la visualisation 3D ou connectez un simulateur externe.</p>
+                    </div>
+
+                    <!-- The live iframe -->
+                    <iframe id="vnc-iframe" src="" style="width:100%;height:100%;border:none;display:none;"></iframe>
+                </div>
+
+                <!-- DevOps Panel View -->
+                <div id="devops-panel-wrapper" style="width: 100%; height: 100%; display: none; padding: 1.5rem; overflow-y: auto; background: rgba(5, 5, 10, 0.95); z-index: 10;">
+                    <h3 style="font-family: var(--font-title); font-size: 1.2rem; font-weight: 700; color: var(--accent-cyan); border-bottom: 1px solid var(--border-panel); padding-bottom: 0.5rem; margin-bottom: 1rem;">DevOps Analytics &amp; User Management</h3>
+                    
+                    <!-- KPI Cards Grid -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+                        <div class="glass-panel" style="padding: 1rem; text-align: center; border-color: rgba(6, 182, 212, 0.2); background: rgba(255,255,255,0.01);">
+                            <span style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Total Users</span>
+                            <div style="font-size: 1.8rem; font-weight: 700; font-family: var(--font-title); margin-top: 0.25rem; color: var(--accent-cyan);" id="kpi-users">0</div>
+                        </div>
+                        <div class="glass-panel" style="padding: 1rem; text-align: center; border-color: rgba(16, 185, 129, 0.2); background: rgba(255,255,255,0.01);">
+                            <span style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Active Subscriptions</span>
+                            <div style="font-size: 1.8rem; font-weight: 700; font-family: var(--font-title); margin-top: 0.25rem; color: var(--accent-green);" id="kpi-subs">0</div>
+                        </div>
+                        <div class="glass-panel" style="padding: 1rem; text-align: center; border-color: rgba(168, 85, 247, 0.2); background: rgba(255,255,255,0.01);">
+                            <span style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Simulation Hours</span>
+                            <div style="font-size: 1.8rem; font-weight: 700; font-family: var(--font-title); margin-top: 0.25rem; color: var(--accent-purple);" id="kpi-hours">0.0h</div>
+                        </div>
+                        <div class="glass-panel" style="padding: 1rem; text-align: center; border-color: rgba(249, 115, 22, 0.2); background: rgba(255,255,255,0.01);">
+                            <span style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Total Operations</span>
+                            <div style="font-size: 1.8rem; font-weight: 700; font-family: var(--font-title); margin-top: 0.25rem; color: var(--accent-orange);" id="kpi-ops">0</div>
+                        </div>
+                    </div>
+
+                    <!-- Main Columns: Left (User Table) & Right (Stats & Logs) -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <!-- Left Panel: User Management -->
+                        <div class="glass-panel" style="padding: 1rem; border-color: var(--border-panel); background: rgba(0,0,0,0.2);">
+                            <h4 style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.75rem; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                                <span>User Directory</span>
+                                <button class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.7rem;" onclick="refreshDevOpsData()">Refresh</button>
+                            </h4>
+                            <div style="overflow-x: auto; max-height: 250px;">
+                                <table class="devops-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Email</th>
+                                            <th>Created At</th>
+                                            <th>Sessions</th>
+                                            <th>Status</th>
+                                            <th style="text-align: right;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="devops-users-tbody">
+                                        <!-- User rows go here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: Robot Brand Distribution & System Logs -->
+                        <div style="display: flex; flex-direction: column; gap: 1rem;">
+                            <!-- Robot Usage Statistics -->
+                            <div class="glass-panel" style="padding: 1rem; border-color: var(--border-panel); background: rgba(0,0,0,0.2);">
+                                <h4 style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.5rem; font-weight: 600;">Operation Distribution by Robot</h4>
+                                <div id="devops-brand-stats" style="font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                                    <!-- Brand bars go here -->
+                                </div>
+                            </div>
+
+                            <!-- System Database Logs -->
+                            <div class="glass-panel" style="padding: 1rem; border-color: var(--border-panel); background: rgba(0,0,0,0.2); flex-grow: 1;">
+                                <h4 style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.5rem; font-weight: 600;">System Actions Log (DB)</h4>
+                                <div style="max-height: 120px; overflow-y: auto; font-family: var(--font-code); font-size: 0.7rem; line-height: 1.3;" id="devops-db-logs">
+                                    <!-- Logs go here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="telemetry-row">
+                <div class="telemetry-col">
+                    <h4 id="lbl-tcp-title">TCP Coordinates (Meters / Rad)</h4>
+                    <div class="coordinates-grid">
+                        <div class="coord-box"><div class="coord-label">X</div><div class="coord-val" id="tcp-x">+0.000</div></div>
+                        <div class="coord-box"><div class="coord-label">Y</div><div class="coord-val" id="tcp-y">+0.000</div></div>
+                        <div class="coord-box"><div class="coord-label">Z</div><div class="coord-val" id="tcp-z">+0.000</div></div>
+                        <div class="coord-box"><div class="coord-label">Rx</div><div class="coord-val" id="tcp-rx">+0.000</div></div>
+                        <div class="coord-box"><div class="coord-label">Ry</div><div class="coord-val" id="tcp-ry">+0.000</div></div>
+                        <div class="coord-box"><div class="coord-label">Rz</div><div class="coord-val" id="tcp-rz">+0.000</div></div>
+                    </div>
+                </div>
+                <div class="telemetry-col">
+                    <h4 id="lbl-joints-title">Joint Angles (Degrees)</h4>
+                    <div class="joints-grid">
+                        <div class="joint-box"><span class="joint-label">J0</span><span class="joint-val" id="j0">0.0°</span></div>
+                        <div class="joint-box"><span class="joint-label">J1</span><span class="joint-val" id="j1">0.0°</span></div>
+                        <div class="joint-box"><span class="joint-label">J2</span><span class="joint-val" id="j2">0.0°</span></div>
+                        <div class="joint-box"><span class="joint-label">J3</span><span class="joint-val" id="j3">0.0°</span></div>
+                        <div class="joint-box"><span class="joint-label">J4</span><span class="joint-val" id="j4">0.0°</span></div>
+                        <div class="joint-box"><span class="joint-label">J5</span><span class="joint-val" id="j5">0.0°</span></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Panel 3: Output & Console -->
+        <section class="glass-panel" id="panel-output">
+            <div class="panel-header">
+                <span id="lbl-output-title">Extracted Code &amp; Compilation</span>
+            </div>
+            
+            <div class="format-selector-row">
+                <label id="lbl-protocol" for="format-select">Protocol:</label>
+                <select id="format-select" onchange="onProtocolChange(this.value)">
+                    <!-- Universal Robots -->
+                    <optgroup label="Universal Robots">
+                        <option value="urscript" selected>URScript URSim (noVNC)</option>
+                    </optgroup>
+                    <!-- KUKA -->
+                    <optgroup label="KUKA">
+                        <option value="krl">KRL KUKA.OfficeLite</option>
+                    </optgroup>
+                    <!-- ABB -->
+                    <optgroup label="ABB">
+                        <option value="rapid">RAPID RobotStudio</option>
+                    </optgroup>
+                    <!-- Fanuc -->
+                    <optgroup label="Fanuc">
+                        <option value="fanuc">Karel Fanuc ROBOGUIDE</option>
+                    </optgroup>
+                    <!-- Yaskawa -->
+                    <optgroup label="Yaskawa / Motoman">
+                        <option value="inform">INFORM MotoSim EG-VRC</option>
+                    </optgroup>
+                    <!-- Doosan -->
+                    <optgroup label="Doosan Robotics">
+                        <option value="drl">DRL Doosan Virtual Robot</option>
+                    </optgroup>
+                    <!-- ROS -->
+                    <optgroup label="Open Standards">
+                        <option value="ros1">ROS1 YAML / Topics</option>
+                        <option value="ros2">ROS2 Actions / Topics</option>
+                    </optgroup>
+                    <!-- Generic -->
+                    <optgroup label="Generic / Protocols">
+                        <option value="serial">Serial CNC G-code</option>
+                        <option value="modbus">Modbus TCP Map</option>
+                        <option value="plain_text">Plain Text ASCII</option>
+                        <option value="json">Raw FOROS JSON</option>
+                    </optgroup>
+                </select>
+            </div>
+
+            <div class="tab-buttons">
+                <button class="tab-btn" id="tab-reasoning" onclick="switchTab('reasoning')">Muse Plan</button>
+                <button class="tab-btn active" id="tab-json" onclick="switchTab('json')">JSON Ops (Model)</button>
+                <button class="tab-btn" id="tab-code" onclick="switchTab('code')">Robot Script</button>
+            </div>
+
+            <div class="code-container">
+                <button class="btn btn-outline copy-btn" id="btn-copy" onclick="copyCode()">Copy</button>
+
+                <!-- Muse Spatial Reasoning Display -->
+                <div id="code-reasoning-wrapper" style="width: 100%; height: 100%; display: none; overflow-y: auto; padding-right: 0.25rem;">
+                    <div id="code-reasoning" class="reasoning-list">
+                        <div class="reasoning-step-card">
+                            <div class="reasoning-step-head">
+                                <span>MUSE SPATIAL PLANNER + SAM 3.1</span>
+                                <span>STANDBY</span>
+                            </div>
+                            <div class="reasoning-step-title">Awaiting Natural Language Directive</div>
+                            <div class="reasoning-step-detail">Submit a natural language command or select a segmented object from the SAM 3.1 Workcell Perception module to inspect the full spatial reasoning trace, kinematic envelope check, and deterministic protocol compilation.</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- JSON Display -->
+                <div id="code-json-wrapper" style="width: 100%; height: 100%;">
+                    <pre><code id="code-json">// Generated JSON operations will appear here.</code></pre>
+                </div>
+                
+                <!-- Compiled Code Display -->
+                <div id="code-robot-wrapper" style="width: 100%; height: 100%; display: none;">
+                    <pre><code id="code-robot">// The compiled program will appear here.</code></pre>
+                </div>
+            </div>
+
+            <div class="btn-send-wrapper">
+                <button class="btn btn-cyan" id="btn-send" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.45rem;">
+                    <svg class="svg-icon" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    <span id="lbl-btn-send">Send &amp; Execute on Robot</span>
+                </button>
+            </div>
+
+            <div class="console-container">
+                <div class="console-header">
+                    <span id="lbl-console-title">System Console</span>
+                    <span id="console-clear" style="cursor:pointer;" onclick="clearConsole()">Clear</span>
+                </div>
+                <div class="console-lines" id="console-log">
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // ═══════════════════════════════════════════════════════════════
+        // PLATFORM DEFINITIONS
+           const PLATFORMS = {
+            urscript: {
+                brand: "Universal Robots",
+                model: "UR5e",
+                icon: "",
+                theme: "theme-ur",
+                color: "#06b6d4",
+                vnc_url: "http://localhost:6080/vnc.html?autoconnect=true&resize=scale",
+                has_sim: true,
+                sim_label: { fr: "URSim — Polyscope", en: "URSim — Polyscope" },
+                setup: {
+                    fr: {
+                        title: "Configuration URSim Requise",
+                        steps: [
+                            "Activez le contrôle à distance : <strong>Settings › System › Remote Control › Enable</strong>.",
+                            "Mettez le robot sous tension : cliquez sur le voyant rouge en bas à gauche › <strong>Power On</strong> › <strong>Start</strong>.",
+                            "Basculez en mode <strong>Remote</strong> via le bouton en haut à droite dans Polyscope."
+                        ]
+                    },
+                    en: {
+                        title: "URSim Configuration Required",
+                        steps: [
+                            "Enable remote control: <strong>Settings › System › Remote Control › Enable</strong>.",
+                            "Power on the robot: click the bottom-left indicator › <strong>Power On</strong> › <strong>Start</strong>.",
+                            "Switch to <strong>Remote</strong> mode via the top-right button in Polyscope."
+                        ]
+                    }
+                }
+            },
+            krl: {
+                brand: "KUKA",
+                model: "KR AGILUS",
+                icon: "",
+                theme: "theme-kuka",
+                color: "#f97316",
+                vnc_url: "http://localhost:6083/vnc.html?autoconnect=true&resize=scale",
+                has_sim: true,
+                sim_label: { fr: "KUKA KRL Mock (Docker)", en: "KUKA KRL Mock (Docker)" },
+                setup: {
+                    fr: {
+                        title: "KUKA Mock Controller — Docker",
+                        steps: [
+                            "Démarrez le simulateur: <code>docker compose -f simulators/docker-compose.all.yml --profile kuka up</code>",
+                            "Attendez que le terminal KRL apparaisse dans la fenêtre VNC ci-dessous.",
+                            "Le bridge FOROS envoie le KRL généré au contrôleur sur <strong>TCP port 7000</strong>.",
+                            "Feedback état robot disponible sur <strong>http://localhost:8766/api/status</strong>."
+                        ]
+                    },
+                    en: {
+                        title: "KUKA Mock Controller — Docker",
+                        steps: [
+                            "Start the simulator: <code>docker compose -f simulators/docker-compose.all.yml --profile kuka up</code>",
+                            "Wait for the KRL terminal to appear in the VNC window below.",
+                            "FOROS bridge sends generated KRL to the controller on <strong>TCP port 7000</strong>.",
+                            "Robot state feedback available at <strong>http://localhost:8766/api/status</strong>."
+                        ]
+                    }
+                }
+            },
+            rapid: {
+                brand: "ABB",
+                model: "IRB 1200",
+                icon: "",
+                theme: "theme-abb",
+                color: "#ef4444",
+                vnc_url: "http://localhost:6084/vnc.html?autoconnect=true&resize=scale",
+                has_sim: true,
+                sim_label: { fr: "ABB RAPID Mock (Docker)", en: "ABB RAPID Mock (Docker)" },
+                setup: {
+                    fr: {
+                        title: "ABB Mock Controller — Docker",
+                        steps: [
+                            "Démarrez le simulateur: <code>docker compose -f simulators/docker-compose.all.yml --profile abb up</code>",
+                            "Le terminal RAPID apparaît dans la fenêtre VNC ci-dessous.",
+                            "FOROS envoie le code RAPID au contrôleur sur <strong>TCP port 7001</strong>.",
+                            "Feedback état robot: <strong>http://localhost:8767/api/status</strong>."
+                        ]
+                    },
+                    en: {
+                        title: "ABB Mock Controller — Docker",
+                        steps: [
+                            "Start the simulator: <code>docker compose -f simulators/docker-compose.all.yml --profile abb up</code>",
+                            "The RAPID terminal appears in the VNC window below.",
+                            "FOROS sends generated RAPID to the controller on <strong>TCP port 7001</strong>.",
+                            "Robot state feedback: <strong>http://localhost:8767/api/status</strong>."
+                        ]
+                    }
+                }
+            },
+            fanuc: {
+                brand: "Fanuc",
+                model: "LR Mate 200iD",
+                icon: "",
+                theme: "theme-other",
+                color: "#eab308",
+                vnc_url: "http://localhost:6085/vnc.html?autoconnect=true&resize=scale",
+                has_sim: true,
+                sim_label: { fr: "Fanuc Karel Mock (Docker)", en: "Fanuc Karel Mock (Docker)" },
+                setup: {
+                    fr: {
+                        title: "Fanuc Mock Controller — Docker",
+                        steps: [
+                            "Démarrez le simulateur: <code>docker compose -f simulators/docker-compose.all.yml --profile fanuc up</code>",
+                            "Le terminal Karel apparaît dans la fenêtre VNC ci-dessous.",
+                            "FOROS envoie le code Karel au contrôleur sur <strong>TCP port 7002</strong>.",
+                            "Feedback état robot: <strong>http://localhost:8768/api/status</strong>."
+                        ]
+                    },
+                    en: {
+                        title: "Fanuc Mock Controller — Docker",
+                        steps: [
+                            "Start the simulator: <code>docker compose -f simulators/docker-compose.all.yml --profile fanuc up</code>",
+                            "The Karel terminal appears in the VNC window below.",
+                            "FOROS sends generated Karel to the controller on <strong>TCP port 7002</strong>.",
+                            "Robot state feedback: <strong>http://localhost:8768/api/status</strong>."
+                        ]
+                    }
+                }
+            },
+            inform: {
+                brand: "Yaskawa / Motoman",
+                model: "HC10",
+                icon: "",
+                theme: "theme-other",
+                color: "#22c55e",
+                vnc_url: null,
+                has_sim: false,
+                sim_label: { fr: "MotoSim EG-VRC", en: "MotoSim EG-VRC" },
+                setup: {
+                    fr: {
+                        title: "MotoSim EG-VRC",
+                        steps: [
+                            "Installez <strong>MotoSim EG-VRC</strong> (licence Yaskawa requise).",
+                            "Ouvrez un projet existant ou créez une cellule virtuelle.",
+                            "Importez le programme INFORM via l'éditeur de tâches intégré."
+                        ]
+                    },
+                    en: {
+                        title: "MotoSim EG-VRC Setup",
+                        steps: [
+                            "Install <strong>MotoSim EG-VRC</strong> (Yaskawa license required).",
+                            "Open an existing project or create a virtual workcell.",
+                            "Import the INFORM program via the integrated task editor."
+                        ]
+                    }
+                }
+            },
+            drl: {
+                brand: "Doosan Robotics",
+                model: "M1013",
+                icon: "",
+                theme: "theme-other",
+                color: "#3b82f6",
+                vnc_url: "http://localhost:6086/vnc.html?autoconnect=true&resize=scale",
+                has_sim: true,
+                sim_label: { fr: "Doosan DRL Mock (Docker)", en: "Doosan DRL Mock (Docker)" },
+                setup: {
+                    fr: {
+                        title: "Doosan Mock Controller — Docker",
+                        steps: [
+                            "Démarrez le simulateur: <code>docker compose -f simulators/docker-compose.all.yml --profile doosan up</code>",
+                            "Le terminal DRL apparaît dans la fenêtre VNC ci-dessous.",
+                            "FOROS envoie le code DRL au contrôleur sur <strong>TCP port 7003</strong>.",
+                            "Feedback état robot: <strong>http://localhost:8769/api/status</strong>."
+                        ]
+                    },
+                    en: {
+                        title: "Doosan Mock Controller — Docker",
+                        steps: [
+                            "Start the simulator: <code>docker compose -f simulators/docker-compose.all.yml --profile doosan up</code>",
+                            "The DRL terminal appears in the VNC window below.",
+                            "FOROS sends generated DRL to the controller on <strong>TCP port 7003</strong>.",
+                            "Robot state feedback: <strong>http://localhost:8769/api/status</strong>."
+                        ]
+                    }
+                }
+            },
+            ros1: {
+                brand: "ROS 1",
+                model: "Generic",
+                icon: "",
+                theme: "theme-other",
+                color: "#9ca3af",
+                vnc_url: "http://localhost:6081/vnc.html?autoconnect=true&resize=scale",
+                has_sim: true,
+                sim_label: { fr: "ROS1 Noetic + Gazebo (Docker)", en: "ROS1 Noetic + Gazebo (Docker)" },
+                setup: {
+                    fr: {
+                        title: "ROS 1 + Gazebo",
+                        steps: [
+                            "Installez <strong>ROS Noetic</strong> et <strong>Gazebo 11</strong> sur Ubuntu 20.04.",
+                            "Lancez <code>roslaunch robot_description gazebo.launch</code>.",
+                            "Publiez les topics YAML générés avec <code>rostopic pub</code>."
+                        ]
+                    },
+                    en: {
+                        title: "ROS 1 + Gazebo",
+                        steps: [
+                            "Install <strong>ROS Noetic</strong> and <strong>Gazebo 11</strong> on Ubuntu 20.04.",
+                            "Launch <code>roslaunch robot_description gazebo.launch</code>.",
+                            "Publish the generated YAML topics with <code>rostopic pub</code>."
+                        ]
+                    }
+                }
+            },
+            ros2: {
+                brand: "ROS 2",
+                model: "Generic",
+                icon: "",
+                theme: "theme-other",
+                color: "#9ca3af",
+                vnc_url: "http://localhost:6082/vnc.html?autoconnect=true&resize=scale",
+                has_sim: true,
+                sim_label: { fr: "ROS2 Humble + Ignition (Docker)", en: "ROS2 Humble + Ignition (Docker)" },
+                setup: {
+                    fr: {
+                        title: "ROS 2 Mock Controller — Docker",
+                        steps: [
+                            "Démarrez le simulateur: <code>docker compose -f simulators/docker-compose.all.yml --profile ros2 up</code>",
+                            "Le terminal ROS2 apparaît dans la fenêtre VNC ci-dessous.",
+                            "FOROS envoie les actions sur <strong>rosbridge WebSocket port 9091</strong>.",
+                            "Feedback état robot: <strong>http://localhost:8770/api/status</strong>."
+                        ]
+                    },
+                    en: {
+                        title: "ROS 2 Mock Controller — Docker",
+                        steps: [
+                            "Start the simulator: <code>docker compose -f simulators/docker-compose.all.yml --profile ros2 up</code>",
+                            "The ROS2 terminal appears in the VNC window below.",
+                            "FOROS sends actions to <strong>rosbridge WebSocket port 9091</strong>.",
+                            "Robot state feedback: <strong>http://localhost:8770/api/status</strong>."
+                        ]
+                    }
+                }
+            },
+            serial: {
+                brand: "CNC / G-code",
+                model: "Generic CNC",
+                icon: "",
+                theme: "theme-other",
+                color: "#9ca3af",
+                vnc_url: null,
+                has_sim: false,
+                sim_label: { fr: "G-code Série", en: "Serial G-code" },
+                setup: {
+                    fr: { title: "G-code CNC Série", steps: ["Connectez votre machine via port COM/USB.", "Utilisez un logiciel comme <strong>Universal G-Code Sender</strong> ou <strong>CNCjs</strong>.", "Copiez-collez le G-code généré dans la console de commande."] },
+                    en: { title: "Serial CNC G-code", steps: ["Connect your machine via COM/USB port.", "Use software like <strong>Universal G-Code Sender</strong> or <strong>CNCjs</strong>.", "Copy-paste the generated G-code into the command console."] }
+                }
+            },
+            modbus: {
+                brand: "Modbus TCP",
+                model: "PLC / IO",
+                icon: "",
+                theme: "theme-other",
+                color: "#9ca3af",
+                vnc_url: null,
+                has_sim: false,
+                sim_label: { fr: "Modbus TCP", en: "Modbus TCP" },
+                setup: {
+                    fr: { title: "Modbus TCP", steps: ["Configurez l'adresse IP et le port (défaut : 502) du maître Modbus.", "Importez la carte de registres générée dans votre SCADA ou API.", "Utilisez <strong>Modbus Poll</strong> ou équivalent pour valider les échanges."] },
+                    en: { title: "Modbus TCP", steps: ["Configure the IP address and port (default: 502) of the Modbus master.", "Import the generated register map into your SCADA or PLC.", "Use <strong>Modbus Poll</strong> or equivalent to validate exchanges."] }
+                }
+            },
+            plain_text: {
+                brand: "Plain Text",
+                model: "ASCII",
+                icon: "",
+                theme: "theme-other",
+                color: "#9ca3af",
+                vnc_url: null,
+                has_sim: false,
+                sim_label: { fr: "Texte Brut", en: "Plain Text" },
+                setup: {
+                    fr: { title: "Format Texte Brut", steps: ["Aucun simulateur requis.", "Le texte ASCII généré peut être utilisé comme pseudo-code ou guide opérateur.", "Exportez et intégrez dans votre propre pipeline de traitement."] },
+                    en: { title: "Plain Text Format", steps: ["No simulator required.", "The generated ASCII text can be used as pseudo-code or operator guide.", "Export and integrate into your own processing pipeline."] }
+                }
+            },
+            json: {
+                brand: "FOROS JSON",
+                model: "Raw API",
+                icon: "",
+                theme: "theme-other",
+                color: "#9ca3af",
+                vnc_url: null,
+                has_sim: false,
+                sim_label: { fr: "API JSON Brut", en: "Raw JSON API" },
+                setup: {
+                    fr: { title: "FOROS JSON Brut", steps: ["Le JSON brut représente le graphe d'opérations interne du moteur.", "Utilisez-le pour intégrer FOROS dans votre propre orchestrateur.", "Compatible avec l'API REST /api/process de FOROS."] },
+                    en: { title: "Raw FOROS JSON", steps: ["The raw JSON represents the engine's internal operation graph.", "Use it to integrate FOROS into your own orchestrator.", "Compatible with the FOROS REST API /api/process."] }
+                }
+            }
+        };
+
+
+        // ═══════════════════════════════════════════════════════════════
+        // TRANSLATIONS
+        // ═══════════════════════════════════════════════════════════════
+        const TRANSLATIONS = {
+            fr: {
+                title: "FOROS Action Engine",
+                subTitle: "V5.3 Industriel",
+                statusSimulated: "Mode Simulation",
+                statusConnected: "Robot RTDE : Connecté",
+                statusDisconnected: "Robot RTDE : Déconnecté",
+                directivesTitle: "Directives Naturelles",
+                promptPlaceholder: "Saisissez une commande en langage naturel (ex: move to x=0.3 y=-0.2 z=0.4)...",
+                btnGenerate: "Générer Action",
+                btnGenerating: "Inférence en cours...",
+                exampleTasks: "Exemples de Tâches",
+                examplePickPlace: "Pick & Place composé",
+                exampleSafety: "Détection d'Erreur & FSM",
+                exampleRepeat: "Boucle répétitive 3x",
+                exampleControl: "Boucle de rétroaction 50Hz",
+                examplePatrol: "Patrouille multi-points",
+                btnStop: "Arrêt d'Urgence",
+                btnHome: "Retour Home Position",
+                btnPower: "Mise sous tension / Libération Freins",
+                previewTitle: "Simulation 3D & Télémesure Temps Réel",
+                cameraOverlay: "Caméra Libre 3D",
+                cameraInstructions: "Clic-glisser pour pivoter | Molette pour zoomer",
+                tcpTitle: "Coordonnées TCP (Mètres / Rad)",
+                jointsTitle: "Angles Articulaires (Degrés)",
+                outputTitle: "Code Extrait & Compilation",
+                protocolLabel: "Protocole :",
+                tabJson: "JSON Ops (Modèle)",
+                tabCode: "Script Robot",
+                tab3d: "Visuel 3D",
+                tabVnc: "VNC Simulateur",
+                btnCopy: "Copier",
+                btnCopied: "Copié !",
+                btnSend: "Envoyer et Exécuter sur le Robot",
+                consoleTitle: "Console Système",
+                consoleClear: "Vider",
+                logInitOS: "Système d'exploitation initialisé.",
+                logModelReady: "Modèle Foros Robotics prêt à l'action.",
+                logConsoleClear: "Console nettoyée.",
+                logPromptLoaded: "Prompt chargé: \"{prompt}\"",
+                logCopied: "Code copié dans le presse-papiers.",
+                logCopyFailed: "Échec de la copie du code.",
+                logSending: "Envoi de l'instruction au modèle Foros...",
+                logInferenceSuccess: "Opérations décodées avec succès. Latence: {latency} ms.",
+                logInferenceFailed: "Échec de l'inférence: {error}",
+                logNetworkError: "Erreur de communication backend: {error}",
+                logTransmission: "Transmission du programme au contrôleur...",
+                logSendSuccess: "Code envoyé avec succès ! Le robot s'exécute en usine.",
+                logSendFailed: "Échec de l'envoi: {error}",
+                logStop: "ARRÊT D'URGENCE DÉCLENCHÉ !",
+                logStopAcquired: "Commande de décélération immédiate stopj(2.0) acquise.",
+                logStopFailed: "Échec de la communication d'arrêt d'urgence: {error}",
+                logHome: "Commande de retour en position home de sécurité...",
+                logHomeInitiated: "Mouvement vers la posture de sécurité initié.",
+                logHomeFailed: "Échec de la commande home: {error}",
+                logPower: "Envoi de la commande de mise sous tension / libération des freins...",
+                logPowerSuccess: "Robot alimenté. Freins libérés.",
+                logPowerFailed: "Commande rejetée ou non disponible sur ce modèle: {error}",
+                jsonPlaceholder: "// Les opérations JSON générées s'afficheront ici.",
+                codePlaceholder: "// Le programme compilé s'affichera ici.",
+                logPlatformSwitch: "Plateforme changée → {platform}",
+                noSimTitle: "Simulateur non disponible",
+                noSimDesc: "Ce protocole n'a pas d'interface VNC intégrée. Lancez le simulateur externe de la plateforme et utilisez le code généré.",
+                hasSim: "Simulateur live disponible",
+                themeDark: "Thème : Sombre",
+                themeLight: "Thème : Clair",
+            },
+            en: {
+                title: "FOROS Action Engine",
+                subTitle: "V5.3 Industrial",
+                statusSimulated: "Simulation Mode",
+                statusConnected: "Robot RTDE: Connected",
+                statusDisconnected: "Robot RTDE: Disconnected",
+                directivesTitle: "Natural Directives",
+                promptPlaceholder: "Enter a natural language command (e.g., move to x=0.3 y=-0.2 z=0.4)...",
+                btnGenerate: "Generate Action",
+                btnGenerating: "Running inference...",
+                exampleTasks: "Example Tasks",
+                examplePickPlace: "Composed Pick & Place",
+                exampleSafety: "Error Detection & FSM",
+                exampleRepeat: "3x Repeat Loop",
+                exampleControl: "50Hz Feedback Loop",
+                examplePatrol: "Multi-point Patrol",
+                btnStop: "Emergency Stop",
+                btnHome: "Return Home Position",
+                btnPower: "Power / Release Brakes",
+                previewTitle: "3D Simulation & Real-time Telemetry",
+                cameraOverlay: "Free 3D Camera",
+                cameraInstructions: "Click & drag to rotate | Scroll to zoom",
+                tcpTitle: "TCP Coordinates (Meters / Rad)",
+                jointsTitle: "Joint Angles (Degrees)",
+                outputTitle: "Extracted Code & Compilation",
+                protocolLabel: "Protocol:",
+                tabJson: "JSON Ops (Model)",
+                tabCode: "Robot Script",
+                tab3d: "3D Render",
+                tabVnc: "VNC Simulator",
+                btnCopy: "Copy",
+                btnCopied: "Copied!",
+                btnSend: "Send & Execute on Robot",
+                consoleTitle: "System Console",
+                consoleClear: "Clear",
+                logInitOS: "Operating system initialized.",
+                logModelReady: "Foros Robotics model ready for action.",
+                logConsoleClear: "Console cleared.",
+                logPromptLoaded: "Prompt loaded: \"{prompt}\"",
+                logCopied: "Code copied to clipboard.",
+                logCopyFailed: "Failed to copy code.",
+                logSending: "Sending instruction to Foros model...",
+                logInferenceSuccess: "Operations successfully decoded. Latency: {latency} ms.",
+                logInferenceFailed: "Inference failed: {error}",
+                logNetworkError: "Backend communication error: {error}",
+                logTransmission: "Transmitting program to controller...",
+                logSendSuccess: "Code sent successfully! Robot executing in factory.",
+                logSendFailed: "Send failed: {error}",
+                logStop: "EMERGENCY STOP TRIGGERED!",
+                logStopAcquired: "Immediate deceleration stopj(2.0) command acknowledged.",
+                logStopFailed: "Emergency stop communication failed: {error}",
+                logHome: "Sending return to safe home position command...",
+                logHomeInitiated: "Movement to safety posture initiated.",
+                logHomeFailed: "Home command failed: {error}",
+                logPower: "Sending power on / brake release command...",
+                logPowerSuccess: "Robot powered. Brakes released.",
+                logPowerFailed: "Command rejected or unavailable on this model: {error}",
+                jsonPlaceholder: "// Generated JSON operations will appear here.",
+                codePlaceholder: "// The compiled program will appear here.",
+                logPlatformSwitch: "Platform switched → {platform}",
+                noSimTitle: "Simulator not available",
+                noSimDesc: "This protocol has no integrated VNC interface. Launch the platform's external simulator and use the generated code.",
+                hasSim: "Live simulator available",
+                themeDark: "Theme: Dark",
+                themeLight: "Theme: Light",
+            }
+        };
+
+        // Firebase Configuration & Initialization
+        const firebaseConfig = {
+            apiKey: "AIzaSyC5xOa-1yg28E55yU1ARIUEOarg2sSNGAI",
+            authDomain: "foros-afc37.firebaseapp.com",
+            projectId: "foros-afc37",
+            storageBucket: "foros-afc37.firebasestorage.app",
+            messagingSenderId: "747389305608",
+            appId: "1:747389305608:web:757370c833e13506d722bd",
+            measurementId: "G-J345PMZGTV"
+        };
+
+        let firebaseApp, firebaseAnalytics;
+        try {
+            firebaseApp = firebase.initializeApp(firebaseConfig);
+            firebaseAnalytics = firebase.analytics();
+            console.log("Firebase Analytics initialized successfully");
+        } catch (e) {
+            console.warn("Failed to initialize Firebase:", e);
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STATE
+        // ═══════════════════════════════════════════════════════════════
+        let currentLang = 'en';
+        let currentTheme = 'dark';
+        let currentTab = 'json';
+        let currentSimTab = '3d';
+        let currentProtocol = 'urscript';
+        let generatedOps = null;
+        let generatedCode = '';
+        let feedbackState = null;
+        let simCardDismissed = false;
+        let loggedInUser = null;
+        let authMode = 'login';
+
+        // ═══════════════════════════════════════════════════════════════
+        // LANGUAGE & THEME
+        // ═══════════════════════════════════════════════════════════════
+        function toggleLanguage() {
+            currentLang = currentLang === 'fr' ? 'en' : 'fr';
+            updateLanguage();
+            log('Language switched.', 'info');
+        }
+
+        function toggleTheme() {
+            currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            updateTheme();
+            log('Theme switched.', 'info');
+        }
+
+        function updateTheme() {
+            const lang = TRANSLATIONS[currentLang];
+            const isLight = currentTheme === 'light';
+            const themeBtnText = document.getElementById('theme-text');
+            const authLogo = document.getElementById('auth-logo-img');
+            const headerLogo = document.getElementById('header-logo-img');
+            
+            if (isLight) {
+                document.body.classList.add('light-theme');
+                if (themeBtnText) themeBtnText.innerText = lang.themeLight.toUpperCase();
+                if (scene && scene.fog) {
+                    scene.fog.color.setHex(0xf1f5f9);
+                }
+                if (authBgScene && authBgScene.fog) {
+                    authBgScene.fog.color.setHex(0xf1f5f9);
+                }
+                if (authLogo) authLogo.src = '/logo_dark.png';
+                if (headerLogo) headerLogo.src = '/logo_dark.png';
+            } else {
+                document.body.classList.remove('light-theme');
+                if (themeBtnText) themeBtnText.innerText = lang.themeDark.toUpperCase();
+                if (scene && scene.fog) {
+                    scene.fog.color.setHex(0x090d16);
+                }
+                if (authBgScene && authBgScene.fog) {
+                    authBgScene.fog.color.setHex(0x030712);
+                }
+                if (authLogo) authLogo.src = '/logo_light.png';
+                if (headerLogo) headerLogo.src = '/logo_light.png';
+            }
+        }
+
+        function updateLanguage() {
+            const lang = TRANSLATIONS[currentLang];
+            document.getElementById('lang-text').innerText = currentLang.toUpperCase();
+            
+            document.getElementById('header-main-title').innerText = lang.title;
+            document.getElementById('logo-tag').innerText = lang.subTitle;
+            
+            if (feedbackState) {
+                document.getElementById('mode-text').innerText = feedbackState.simulation ? lang.statusSimulated : `${currentLang === 'fr' ? 'Mode Usine' : 'Factory Mode'}: ${feedbackState.robot_mode}`;
+                document.getElementById('conn-text').innerText = feedbackState.connected ? lang.statusConnected : lang.statusDisconnected;
+            } else {
+                document.getElementById('mode-text').innerText = lang.statusSimulated;
+                document.getElementById('conn-text').innerText = lang.statusDisconnected;
+            }
+
+            document.getElementById('lbl-directives-title').innerText = lang.directivesTitle;
+            document.getElementById('lbl-telemetry-header').innerText = lang.previewTitle;
+            document.getElementById('lbl-output-title').innerText = lang.outputTitle;
+            document.getElementById('lbl-protocol').innerText = lang.protocolLabel;
+            document.getElementById('lbl-example-tasks').innerText = lang.exampleTasks;
+            document.getElementById('lbl-cam-title').innerText = lang.cameraOverlay;
+            document.getElementById('lbl-cam-instr').innerText = lang.cameraInstructions;
+            document.getElementById('lbl-tcp-title').innerText = lang.tcpTitle;
+            document.getElementById('lbl-joints-title').innerText = lang.jointsTitle;
+            document.getElementById('lbl-console-title').innerText = lang.consoleTitle;
+            document.getElementById('prompt-input').placeholder = lang.promptPlaceholder;
+            
+            const generateBtnSpan = document.getElementById('lbl-btn-generate');
+            generateBtnSpan.innerText = document.getElementById('btn-generate').disabled ? lang.btnGenerating : lang.btnGenerate;
+
+            document.getElementById('btn-stop').innerText = lang.btnStop;
+            document.getElementById('btn-home').innerText = lang.btnHome;
+            document.getElementById('btn-power').innerText = lang.btnPower;
+            document.getElementById('btn-copy').innerText = lang.btnCopy;
+            const btnSendSpan = document.getElementById('lbl-btn-send') || document.getElementById('btn-send');
+            if (btnSendSpan) btnSendSpan.innerText = lang.btnSend;
+            document.getElementById('console-clear').innerText = lang.consoleClear;
+            
+            document.getElementById('tab-json').innerText = lang.tabJson;
+            document.getElementById('tab-code').innerText = lang.tabCode;
+            const tabReasoning = document.getElementById('tab-reasoning');
+            if (tabReasoning) tabReasoning.innerText = currentLang === 'fr' ? 'Plan Spatial (Muse)' : 'Muse Spatial Plan';
+            document.getElementById('tab-3d').innerText = lang.tab3d;
+            document.getElementById('tab-vnc').innerText = lang.tabVnc;
+
+            document.getElementById('chip-pick-place').innerText = lang.examplePickPlace;
+            document.getElementById('chip-safety').innerText = lang.exampleSafety;
+            document.getElementById('chip-repeat').innerText = lang.exampleRepeat;
+            document.getElementById('chip-control').innerText = lang.exampleControl;
+            document.getElementById('chip-patrol').innerText = lang.examplePatrol;
+
+            if (!generatedOps) document.getElementById('code-json').innerText = lang.jsonPlaceholder;
+            if (!generatedCode) document.getElementById('code-robot').innerText = lang.codePlaceholder;
+
+            // Refresh theme text translation
+            updateTheme();
+
+            // Refresh sim card text for current protocol
+            refreshSimCard();
+            refreshNoSimPlaceholder();
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // PROTOCOL / PLATFORM SWITCH
+        // ═══════════════════════════════════════════════════════════════
+        function onProtocolChange(val) {
+            currentProtocol = val;
+            const p = PLATFORMS[val];
+            if (!p) return;
+
+            // Reset sim card dismiss when switching platform
+            simCardDismissed = false;
+
+            // Update header platform badge
+            document.getElementById('platform-icon').innerText = p.icon;
+            document.getElementById('platform-name-label').innerText = p.brand;
+            document.getElementById('platform-badge').style.borderColor = `color-mix(in srgb, ${p.color} 40%, transparent)`;
+            document.getElementById('platform-badge').style.color = p.color;
+
+            // Update 3D info tag
+            document.getElementById('platform-3d-tag').className = `platform-info-tag ${p.theme}`;
+            document.getElementById('platform-3d-icon').innerText = p.icon;
+            document.getElementById('platform-3d-name').innerText = `${p.brand} ${p.model}`;
+            document.getElementById('platform-3d-tag').style.setProperty('--platform-color', p.color);
+
+            // Update VNC tab label and state
+            const tabVnc = document.getElementById('tab-vnc');
+            if (p.has_sim) {
+                tabVnc.classList.remove('no-sim');
+                tabVnc.classList.add('has-sim');
+                tabVnc.title = TRANSLATIONS[currentLang].hasSim;
+            } else {
+                tabVnc.classList.remove('has-sim');
+                tabVnc.classList.add('no-sim');
+                tabVnc.title = TRANSLATIONS[currentLang].noSimTitle;
+            }
+
+            // If currently on VNC tab, update its content
+            if (currentSimTab === 'vnc') {
+                applySimView();
+            }
+
+            // Refresh sim card
+            refreshSimCard();
+            refreshNoSimPlaceholder();
+
+            const logMsg = (TRANSLATIONS['en'].logPlatformSwitch || '').replace('{platform}', `${p.brand} ${p.model} (${val.toUpperCase()})`);
+            log(logMsg, 'info');
+        }
+
+        function refreshSimCard() {
+            const p = PLATFORMS[currentProtocol];
+            if (!p) return;
+            const setup = p.setup[currentLang];
+            
+            const card = document.getElementById('sim-info-card');
+            card.className = `sim-info-card ${p.theme}`;
+            card.style.setProperty('--platform-color', p.color);
+            card.style.display = simCardDismissed ? 'none' : 'block';
+
+            document.getElementById('sim-card-title').innerHTML = setup.title;
+
+            const stepEls = ['sim-step-1', 'sim-step-2', 'sim-step-3'];
+            stepEls.forEach((id, i) => {
+                const el = document.getElementById(id);
+                if (setup.steps[i]) {
+                    el.innerHTML = setup.steps[i];
+                    el.style.display = '';
+                } else {
+                    el.style.display = 'none';
+                }
+            });
+        }
+
+        function refreshNoSimPlaceholder() {
+            const p = PLATFORMS[currentProtocol];
+            if (!p) return;
+            const lang = TRANSLATIONS[currentLang];
+            document.getElementById('no-sim-title').innerText = lang.noSimTitle;
+            document.getElementById('no-sim-desc').innerText = `${lang.noSimDesc} (${p.sim_label[currentLang]})`;
+        }
+
+        function dismissSimCard() {
+            simCardDismissed = true;
+            const card = document.getElementById('sim-info-card');
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(-8px)';
+            setTimeout(() => { card.style.display = 'none'; }, 300);
+        }
+
+        // Apply the correct VNC/sim content into the wrapper
+        function applySimView() {
+            const p = PLATFORMS[currentProtocol];
+            const iframe = document.getElementById('vnc-iframe');
+            const noSim = document.getElementById('no-sim-placeholder');
+            const card = document.getElementById('sim-info-card');
+
+            if (p && p.has_sim && p.vnc_url) {
+                iframe.style.display = 'block';
+                noSim.style.display = 'none';
+                // Reset and reload iframe src
+                iframe.src = '';
+                
+                let vncUrl = p.vnc_url;
+                if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                    const portMap = {
+                        '6080': 'ursim',
+                        '6081': 'ros1',
+                        '6082': 'ros2',
+                        '6083': 'kuka',
+                        '6084': 'abb',
+                        '6085': 'fanuc',
+                        '6086': 'doosan'
+                    };
+                    try {
+                        const urlObj = new URL(p.vnc_url);
+                        const pathSuffix = portMap[urlObj.port];
+                        if (pathSuffix) {
+                            const sep = urlObj.search ? '&' : '?';
+                            vncUrl = `${window.location.protocol}//${window.location.host}/sim/${pathSuffix}/${urlObj.pathname.substring(1)}${urlObj.search}${sep}path=sim/${pathSuffix}/websockify`;
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse VNC URL:", e);
+                    }
+                }
+                
+                setTimeout(() => { iframe.src = vncUrl; }, 80);
+                card.style.display = simCardDismissed ? 'none' : 'block';
+                card.style.opacity = '1';
+                card.style.transform = '';
+            } else {
+                iframe.style.display = 'none';
+                noSim.style.display = 'flex';
+                card.style.display = 'none';
+                refreshNoSimPlaceholder();
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // TAB SWITCHES
+        // ═══════════════════════════════════════════════════════════════
+        function switchTab(tab) {
+            currentTab = tab;
+            const tabReasoning = document.getElementById('tab-reasoning');
+            if (tabReasoning) tabReasoning.classList.toggle('active', tab === 'reasoning');
+            document.getElementById('tab-json').classList.toggle('active', tab === 'json');
+            document.getElementById('tab-code').classList.toggle('active', tab === 'code');
+            const wrapReasoning = document.getElementById('code-reasoning-wrapper');
+            if (wrapReasoning) wrapReasoning.style.display = tab === 'reasoning' ? 'block' : 'none';
+            document.getElementById('code-json-wrapper').style.display = tab === 'json' ? 'block' : 'none';
+            document.getElementById('code-robot-wrapper').style.display = tab === 'code' ? 'block' : 'none';
+        }
+
+        function switchSimTab(tab) {
+            currentSimTab = tab;
+            document.getElementById('tab-3d').classList.toggle('active', tab === '3d');
+            document.getElementById('tab-vnc').classList.toggle('active', tab === 'vnc');
+            const devopsTabBtn = document.getElementById('tab-devops');
+            if (devopsTabBtn) devopsTabBtn.classList.toggle('active', tab === 'devops');
+
+            const canvas = document.getElementById('robot-canvas-wrapper');
+            const vncWrapper = document.getElementById('vnc-iframe-wrapper');
+            const devopsWrapper = document.getElementById('devops-panel-wrapper');
+
+            if (tab === '3d') {
+                canvas.style.display = 'block';
+                vncWrapper.style.display = 'none';
+                if (devopsWrapper) devopsWrapper.style.display = 'none';
+            } else if (tab === 'vnc') {
+                canvas.style.display = 'none';
+                vncWrapper.style.display = 'block';
+                if (devopsWrapper) devopsWrapper.style.display = 'none';
+                applySimView();
+            } else if (tab === 'devops') {
+                canvas.style.display = 'none';
+                vncWrapper.style.display = 'none';
+                if (devopsWrapper) {
+                    devopsWrapper.style.display = 'block';
+                    refreshDevOpsData();
+                }
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // LOGGING (100% English Industrial Telemetry Console)
+        // ═══════════════════════════════════════════════════════════════
+        function log(msgKey, type='info', param='') {
+            const time = new Date().toLocaleTimeString();
+            const logBox = document.getElementById('console-log');
+            const line = document.createElement('div');
+            line.className = `log-line ${type}`;
+            
+            const lang = TRANSLATIONS['en'];
+            let msg = lang[msgKey] || msgKey;
+            if (param) {
+                msg = msg.replace('{prompt}', param).replace('{latency}', param).replace('{error}', param).replace('{platform}', param);
+            }
+            line.innerText = `[${time}] ${msg}`;
+            logBox.appendChild(line);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function clearConsole() {
+            document.getElementById('console-log').innerHTML = '';
+            log('logConsoleClear', 'info');
+        }
+
+        function loadPrompt(text) {
+            document.getElementById('prompt-input').value = text;
+            log('logPromptLoaded', 'info', text);
+        }
+
+        function copyCode() {
+            let codeText = '';
+            if (currentTab === 'json') {
+                codeText = document.getElementById('code-json').innerText;
+            } else if (currentTab === 'reasoning') {
+                codeText = document.getElementById('code-reasoning').innerText;
+            } else {
+                codeText = document.getElementById('code-robot').innerText;
+            }
+            
+            navigator.clipboard.writeText(codeText).then(() => {
+                log('logCopied', 'success');
+                const copyBtn = document.getElementById('btn-copy');
+                const lang = TRANSLATIONS[currentLang];
+                copyBtn.innerText = lang.btnCopied;
+                setTimeout(() => { copyBtn.innerText = lang.btnCopy; }, 1500);
+            }).catch(() => {
+                log('logCopyFailed', 'error');
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // META SAM 3.1 WORKSPACE PERCEPTION & MUSE REASONING TRACE
+        // ═══════════════════════════════════════════════════════════════
+        let samObjectsCache = [];
+        let workcellMeshes3D = [];
+
+        async function scanWorkspaceSAM(silent = false) {
+            try {
+                const resp = await fetch(`${API_BASE}/api/vision/segment`);
+                const data = await resp.json();
+                if (!data.success) return;
+                samObjectsCache = data.objects || [];
+                renderSamViewport(samObjectsCache);
+                renderWorkcellObjects3D(samObjectsCache);
+                if (!silent) {
+                    log(`SAM 3.1 workcell segmentation completed (${samObjectsCache.length} objects calibrated in ${data.latency_ms} ms).`, 'success');
+                }
+            } catch (e) {
+                if (!silent) {
+                    log(`SAM 3.1 segmentation request failed: ${e.message}`, 'error');
+                }
+            }
+        }
+
+        function renderSamViewport(objects) {
+            const masksGroup = document.getElementById('sam-masks-group');
+            const listEl = document.getElementById('sam-objects-list');
+            if (!masksGroup || !listEl) return;
+
+            masksGroup.innerHTML = '';
+            listEl.innerHTML = '';
+
+            objects.forEach(obj => {
+                const [bx, by, bw, bh] = obj.bbox_norm;
+                const x = Math.round(bx * 360);
+                const y = Math.round(by * 112);
+                const w = Math.round(bw * 360);
+                const h = Math.round(bh * 112);
+                const [ox, oy, oz] = obj.xyz;
+
+                // SVG segmentation mask & bounding box
+                const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                g.style.cursor = 'pointer';
+                g.onclick = () => selectVisionObject(obj.id);
+                g.innerHTML = `
+                    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3"
+                          fill="${obj.color}" fill-opacity="0.18"
+                          stroke="${obj.color}" stroke-width="1.4" />
+                    <circle cx="${x + w/2}" cy="${y + h/2}" r="2.2" fill="${obj.color}" />
+                    <text x="${x + 3}" y="${Math.max(9, y - 3)}" fill="${obj.color}" font-size="7.5" font-weight="700" font-family="JetBrains Mono, monospace">
+                        ${obj.label.split(' ')[0].toUpperCase()} ${(obj.confidence * 100).toFixed(0)}%
+                    </text>
+                `;
+                masksGroup.appendChild(g);
+
+                // Clickable object card
+                const btn = document.createElement('button');
+                btn.className = 'vision-obj-item';
+                btn.onclick = () => selectVisionObject(obj.id);
+                btn.innerHTML = `
+                    <div class="vision-obj-top">
+                        <span style="display:inline-flex;align-items:center;gap:0.3rem;">
+                            <span style="width:7px;height:7px;border-radius:50%;background:${obj.color};display:inline-block;"></span>
+                            <span>${obj.label.replace(' (Target Drop)', '')}</span>
+                        </span>
+                        <span style="color:${obj.color};font-size:0.64rem;">${(obj.confidence * 100).toFixed(1)}%</span>
+                    </div>
+                    <div class="vision-obj-coords">x=${ox.toFixed(2)} y=${oy.toFixed(2)} z=${oz.toFixed(2)}m</div>
+                `;
+                listEl.appendChild(btn);
+            });
+        }
+
+        function renderWorkcellObjects3D(objects) {
+            if (!scene) return;
+            workcellMeshes3D.forEach(m => scene.remove(m));
+            workcellMeshes3D = [];
+
+            objects.forEach(obj => {
+                const [ox, oy, oz] = obj.xyz;
+                const colorHex = parseInt((obj.color || '#06b6d4').replace('#', '0x'), 16);
+                const mat = new THREE.MeshStandardMaterial({
+                    color: colorHex,
+                    metalness: 0.45,
+                    roughness: 0.35
+                });
+                let geo;
+                if (obj.id.includes('tray')) {
+                    geo = new THREE.BoxGeometry(0.16, 0.015, 0.12);
+                } else if (obj.id.includes('gear')) {
+                    geo = new THREE.CylinderGeometry(0.035, 0.035, 0.035, 20);
+                } else {
+                    geo = new THREE.BoxGeometry(0.05, 0.05, 0.05);
+                }
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(ox, -0.075, oy);
+                scene.add(mesh);
+                workcellMeshes3D.push(mesh);
+            });
+        }
+
+        function selectVisionObject(objId) {
+            const obj = samObjectsCache.find(o => o.id === objId);
+            if (!obj) return;
+            const tray = samObjectsCache.find(o => o.id === 'zone_tray_delta') || { xyz: [-0.28, -0.22, 0.20], label: 'Inspection Tray D' };
+            const [sx, sy, sz] = obj.xyz;
+            const [dx, dy, dz] = tray.xyz;
+
+            let cmd = '';
+            if (obj.id === 'zone_tray_delta') {
+                cmd = `Move to ${obj.label} at x=${sx} y=${sy} z=${sz} at speed=0.3`;
+            } else {
+                cmd = `Pick up ${obj.label} at x=${sx} y=${sy} z=${sz} and place it on Inspection Tray D at x=${dx} y=${dy} z=${dz}`;
+            }
+            loadPrompt(cmd);
+            log(`SAM 3.1 target grounded: ${obj.label} -> (${sx}, ${sy}, ${sz}) m`, 'info');
+        }
+
+        function renderReasoningSteps(steps, engineLabel) {
+            const container = document.getElementById('code-reasoning');
+            if (!container) return;
+            if (!steps || !steps.length) return;
+
+            container.innerHTML = '';
+            steps.forEach((step, idx) => {
+                const card = document.createElement('div');
+                card.className = 'reasoning-step-card';
+                card.innerHTML = `
+                    <div class="reasoning-step-head">
+                        <span style="display:inline-flex;align-items:center;gap:0.35rem;">
+                            <svg class="svg-icon" style="width:12px;height:12px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                            <span>0${idx + 1} // ${step.phase}</span>
+                        </span>
+                        <span style="color:var(--accent-green);">VERIFIED</span>
+                    </div>
+                    <div class="reasoning-step-title">${step.title}</div>
+                    <div class="reasoning-step-detail">${step.detail}</div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // META MUSE VOICE TRANSCRIBE (muse-voice-transcribe-1.0)
+        // ═══════════════════════════════════════════════════════════════
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecordingVoice = false;
+
+        async function toggleVoiceRecording() {
+            const btn = document.getElementById('btn-voice-ptt');
+            const lbl = document.getElementById('lbl-voice-btn');
+
+            if (isRecordingVoice && mediaRecorder) {
+                mediaRecorder.stop();
+                isRecordingVoice = false;
+                btn.style.borderColor = 'rgba(6, 182, 212, 0.4)';
+                btn.style.color = 'var(--accent-cyan)';
+                lbl.innerText = 'VOICE';
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioChunks = [];
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = e => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+                mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(t => t.stop());
+                    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+                    const reader = new FileReader();
+                    reader.onloadend = async () => {
+                        log('Sending voice stream to Meta muse-voice-transcribe-1.0...', 'info');
+                        try {
+                            const resp = await fetch(`${API_BASE}/api/voice/transcribe`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    audio_base64: reader.result,
+                                    mime_type: blob.type || 'audio/webm'
+                                })
+                            });
+                            const res = await resp.json();
+                            if (res.success && res.text) {
+                                loadPrompt(res.text);
+                                log(`Meta muse-voice-transcribe-1.0 decoded (${res.latency_ms} ms): "${res.text}"`, 'success');
+                            } else {
+                                log(`Voice transcription error: ${res.error || 'empty transcript'}`, 'error');
+                            }
+                        } catch (err) {
+                            log(`Voice API network error: ${err.message}`, 'error');
+                        }
+                    };
+                    reader.readAsDataURL(blob);
+                };
+                mediaRecorder.start();
+                isRecordingVoice = true;
+                btn.style.borderColor = 'var(--accent-red)';
+                btn.style.color = 'var(--accent-red)';
+                lbl.innerText = 'STOP';
+                log('Recording operator voice directive (click STOP when done)...', 'info');
+            } catch (err) {
+                log(`Microphone access unavailable: ${err.message}`, 'error');
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // Three.js 3D Robot arm visualization
+        // ═══════════════════════════════════════════════════════════════
+        let scene, camera, renderer, controls;
+        let baseGroup, shoulderGroup, elbowGroup, forearmGroup, wrist1Group, wrist2Group, wrist3Group;
+
+        function init3D() {
+            const container = document.getElementById('robot-canvas');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x090d16, 0.05);
+
+            camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+            camera.position.set(2, 2, 2.5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(width, height);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 + 0.1;
+            controls.minDistance = 0.5;
+            controls.maxDistance = 10;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.25);
+            scene.add(ambientLight);
+            const dirLight1 = new THREE.DirectionalLight(0x06b6d4, 0.8);
+            dirLight1.position.set(3, 5, 2);
+            scene.add(dirLight1);
+            const dirLight2 = new THREE.DirectionalLight(0x3b82f6, 0.5);
+            dirLight2.position.set(-3, 5, -2);
+            scene.add(dirLight2);
+
+            const gridHelper = new THREE.GridHelper(10, 50, 0x06b6d4, 0x1e293b);
+            gridHelper.position.y = -0.1;
+            scene.add(gridHelper);
+
+            const cyanMat   = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.7, roughness: 0.2 });
+            const darkMat   = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.3 });
+            const silverMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.9, roughness: 0.1 });
+            const redMat    = new THREE.MeshStandardMaterial({ color: 0xef4444 });
+
+            baseGroup = new THREE.Group(); scene.add(baseGroup);
+            const baseMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.15, 32), darkMat);
+            baseMesh.position.y = 0.075 - 0.1; baseGroup.add(baseMesh);
+
+            shoulderGroup = new THREE.Group(); shoulderGroup.position.y = 0.15 - 0.1; baseGroup.add(shoulderGroup);
+            const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(0.09, 32, 32), silverMat); shoulderGroup.add(shoulderJoint);
+
+            elbowGroup = new THREE.Group(); elbowGroup.position.set(0, 0.35, 0); shoulderGroup.add(elbowGroup);
+            const upperArmLink = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.35, 16), cyanMat);
+            upperArmLink.position.y = -0.175; elbowGroup.add(upperArmLink);
+
+            forearmGroup = new THREE.Group(); forearmGroup.position.set(0, 0.30, 0); elbowGroup.add(forearmGroup);
+            const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.075, 32, 32), silverMat); forearmGroup.add(elbowJoint);
+            const forearmLink = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.30, 16), cyanMat);
+            forearmLink.position.y = -0.15; forearmGroup.add(forearmLink);
+
+            wrist1Group = new THREE.Group(); wrist1Group.position.set(0, 0.10, 0); forearmGroup.add(wrist1Group);
+            const wrist1Mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.08, 16), darkMat);
+            wrist1Mesh.rotation.x = Math.PI / 2; wrist1Group.add(wrist1Mesh);
+
+            wrist2Group = new THREE.Group(); wrist2Group.position.set(0, 0.08, 0); wrist1Group.add(wrist2Group);
+            const wrist2Mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.08, 16), darkMat);
+            wrist2Mesh.rotation.z = Math.PI / 2; wrist2Group.add(wrist2Mesh);
+
+            wrist3Group = new THREE.Group(); wrist3Group.position.set(0, 0.06, 0); wrist2Group.add(wrist3Group);
+            const wrist3Mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.04, 16), silverMat);
+            wrist3Group.add(wrist3Mesh);
+            const toolMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.04), redMat);
+            toolMesh.position.y = 0.035; wrist3Group.add(toolMesh);
+
+            animate();
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('robot-canvas');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function updateRobot3D(q) {
+            if (!shoulderGroup) return;
+            shoulderGroup.rotation.y = q[0];
+            elbowGroup.rotation.z    = q[1] + Math.PI/2;
+            forearmGroup.rotation.z  = q[2];
+            wrist1Group.rotation.z   = q[3] + Math.PI/2;
+            wrist2Group.rotation.y   = q[4];
+            wrist3Group.rotation.z   = q[5];
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // API Requests
+        // ═══════════════════════════════════════════════════════════════
+        const API_BASE = "";
+
+        async function processPrompt() {
+            const prompt = document.getElementById('prompt-input').value.trim();
+            const format = document.getElementById('format-select').value;
+            if (!prompt) { log('logInferenceFailed', 'error', 'prompt is empty'); return; }
+
+            log('logSending', 'info');
+            document.getElementById('btn-generate').disabled = true;
+            document.getElementById('lbl-btn-generate').innerText = TRANSLATIONS[currentLang].btnGenerating;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/process`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt, format, user_id: loggedInUser ? loggedInUser.id : null })
+                });
+                const data = await response.json();
+                document.getElementById('btn-generate').disabled = false;
+                document.getElementById('lbl-btn-generate').innerText = TRANSLATIONS[currentLang].btnGenerate;
+
+                if (data.success) {
+                    generatedOps = data.json_ops;
+                    generatedCode = data.robot_code;
+                    document.getElementById('code-json').innerText = JSON.stringify(data.json_ops, null, 2);
+                    document.getElementById('code-robot').innerText = data.robot_code;
+                    if (data.reasoning_steps) {
+                        renderReasoningSteps(data.reasoning_steps, data.engine_label);
+                    }
+                    if (data.grounded_objects && data.grounded_objects.length > 0) {
+                        const names = data.grounded_objects.map(o => o.label).join(', ');
+                        log(`SAM 3.1 grounded ${data.grounded_objects.length} workcell target(s): ${names}`, 'info');
+                    }
+                    log('logInferenceSuccess', 'success', data.latency_ms.toFixed(0));
+                    
+                    // Firebase Event: Generate action
+                    if (typeof firebaseAnalytics !== 'undefined' && firebaseAnalytics) {
+                        firebaseAnalytics.logEvent('generate_action', { prompt: prompt, format: format });
+                    }
+                    
+                    switchTab(currentTab);
+                } else {
+                    log('logInferenceFailed', 'error', data.error);
+                }
+            } catch (err) {
+                document.getElementById('btn-generate').disabled = false;
+                document.getElementById('lbl-btn-generate').innerText = TRANSLATIONS[currentLang].btnGenerate;
+                log('logNetworkError', 'error', err.message);
+            }
+        }
+
+        async function sendCode() {
+            if (!generatedCode) { log('No compiled robot code available to transmit.', 'warning'); return; }
+            log('logTransmission', 'info');
+            try {
+                const response = await fetch(`${API_BASE}/api/send`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: generatedCode, format: currentProtocol, user_id: loggedInUser ? loggedInUser.id : null })
+                });
+                const data = await response.json();
+                if (data.success) { 
+                    log('logSendSuccess', 'success'); 
+                    // Firebase Event: Send Code
+                    if (typeof firebaseAnalytics !== 'undefined' && firebaseAnalytics) {
+                        firebaseAnalytics.logEvent('send_code', { format: currentProtocol });
+                    }
+                } 
+                else { log('logSendFailed', 'error', data.error); }
+            } catch (err) { log('logNetworkError', 'error', err.message); }
+        }
+
+        async function sendStop() {
+            log('logStop', 'error');
+            // Firebase Event: Emergency Stop
+            if (typeof firebaseAnalytics !== 'undefined' && firebaseAnalytics) {
+                firebaseAnalytics.logEvent('emergency_stop');
+            }
+            try {
+                const response = await fetch(`${API_BASE}/api/stop`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ format: currentProtocol, user_id: loggedInUser ? loggedInUser.id : null })
+                });
+                const data = await response.json();
+                if (data.success) { log('logStopAcquired', 'success'); }
+                else { log('logStopFailed', 'error', 'Estop refused'); }
+            } catch (err) { log('logStopFailed', 'error', err.message); }
+        }
+
+        async function sendHome() {
+            log('logHome', 'info');
+            // Firebase Event: Return Home
+            if (typeof firebaseAnalytics !== 'undefined' && firebaseAnalytics) {
+                firebaseAnalytics.logEvent('return_home');
+            }
+            try {
+                const response = await fetch(`${API_BASE}/api/home`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ format: currentProtocol, user_id: loggedInUser ? loggedInUser.id : null })
+                });
+                const data = await response.json();
+                if (data.success) { log('logHomeInitiated', 'success'); }
+                else { log('logHomeFailed', 'error', 'Home command refused'); }
+            } catch (err) { log('logHomeFailed', 'error', err.message); }
+        }
+
+        async function sendPower() {
+            log('logPower', 'info');
+            // Firebase Event: Power On
+            if (typeof firebaseAnalytics !== 'undefined' && firebaseAnalytics) {
+                firebaseAnalytics.logEvent('power_on');
+            }
+            try {
+                const response = await fetch(`${API_BASE}/api/power`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ format: currentProtocol, user_id: loggedInUser ? loggedInUser.id : null })
+                });
+                const data = await response.json();
+                if (data.success) { log('logPowerSuccess', 'success'); }
+                else { log('logPowerFailed', 'error', 'Power command refused'); }
+            } catch (err) { log('logPowerFailed', 'error', err.message); }
+        }
+
+        // Live status polling
+        async function pollStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/api/status?format=${currentProtocol}`);
+                const s = await response.json();
+                feedbackState = s;
+
+                const connDot = document.getElementById('conn-dot');
+                const connText = document.getElementById('conn-text');
+                const modeDot = document.getElementById('mode-dot');
+                const modeText = document.getElementById('mode-text');
+                const lang = TRANSLATIONS[currentLang];
+
+                if (s.connected) {
+                    connDot.className = 'status-dot connected';
+                    connText.innerText = lang.statusConnected;
+                } else {
+                    connDot.className = 'status-dot disconnected';
+                    connText.innerText = lang.statusDisconnected;
+                }
+
+                if (s.simulation) {
+                    modeDot.className = 'status-dot simulated';
+                    modeText.innerText = lang.statusSimulated;
+                } else {
+                    modeDot.className = 'status-dot connected';
+                    modeText.innerText = `${currentLang === 'fr' ? 'Mode Usine' : 'Factory Mode'}: ${s.robot_mode}`;
+                }
+
+                const tcp = s.tcp_pose || [0,0,0,0,0,0];
+                document.getElementById('tcp-x').innerText = (tcp[0] >= 0 ? '+' : '') + tcp[0].toFixed(3);
+                document.getElementById('tcp-y').innerText = (tcp[1] >= 0 ? '+' : '') + tcp[1].toFixed(3);
+                document.getElementById('tcp-z').innerText = (tcp[2] >= 0 ? '+' : '') + tcp[2].toFixed(3);
+                document.getElementById('tcp-rx').innerText = (tcp[3] >= 0 ? '+' : '') + tcp[3].toFixed(3);
+                document.getElementById('tcp-ry').innerText = (tcp[4] >= 0 ? '+' : '') + tcp[4].toFixed(3);
+                document.getElementById('tcp-rz').innerText = (tcp[5] >= 0 ? '+' : '') + tcp[5].toFixed(3);
+
+                const jrad = s.joints_rad || [0,0,0,0,0,0];
+                const jdeg = s.joints_deg || [0,0,0,0,0,0];
+                for (let i = 0; i < 6; i++) {
+                    document.getElementById(`j${i}`).innerText = jdeg[i].toFixed(1) + '°';
+                }
+                updateRobot3D(jrad);
+            } catch (err) {
+                // Background connection error – silent
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // AUTHENTICATION GATE & ADMIN MANAGEMENT
+        // ═══════════════════════════════════════════════════════════════
+        function setAuthMode(mode) {
+            authMode = mode;
+            const subtitle = document.getElementById('auth-subtitle');
+            const submitBtn = document.getElementById('btn-auth-submit');
+            const switchText = document.getElementById('auth-switch-text');
+            const switchLink = document.getElementById('auth-switch-link');
+            const errorDiv = document.getElementById('auth-error');
+            
+            const emailContainer = document.getElementById('auth-email-container');
+            const passwordContainer = document.getElementById('auth-password-container');
+            const codeContainer = document.getElementById('auth-code-container');
+            const newPasswordContainer = document.getElementById('auth-new-password-container');
+            const forgotLinkContainer = document.getElementById('auth-forgot-link-container');
+            const backToLoginDiv = document.getElementById('auth-back-to-login');
+            const switchDiv = document.getElementById('auth-switch-text').parentElement;
+
+            errorDiv.style.display = 'none';
+
+            // Reset visibilities
+            emailContainer.style.display = 'flex';
+            passwordContainer.style.display = 'none';
+            codeContainer.style.display = 'none';
+            newPasswordContainer.style.display = 'none';
+            forgotLinkContainer.style.display = 'none';
+            backToLoginDiv.style.display = 'none';
+            switchDiv.style.display = 'block';
+
+            if (mode === 'login') {
+                passwordContainer.style.display = 'flex';
+                forgotLinkContainer.style.display = 'block';
+                subtitle.innerText = 'Sign in to control your automation instances';
+                submitBtn.innerText = 'Sign In';
+                switchText.innerText = "Don't have an account?";
+                switchLink.innerText = 'Create account';
+            } else if (mode === 'register') {
+                passwordContainer.style.display = 'flex';
+                subtitle.innerText = 'Register a new industrial simulation account';
+                submitBtn.innerText = 'Create Account';
+                switchText.innerText = 'Already have an account?';
+                switchLink.innerText = 'Sign In';
+            } else if (mode === 'forgot') {
+                subtitle.innerText = 'Enter your email to receive a password reset code';
+                submitBtn.innerText = 'Send Recovery Code';
+                switchDiv.style.display = 'none';
+                backToLoginDiv.style.display = 'block';
+            } else if (mode === 'reset') {
+                codeContainer.style.display = 'flex';
+                newPasswordContainer.style.display = 'flex';
+                subtitle.innerHTML = 'Enter the verification code and your new password.<br/><small style="color: var(--accent-orange); font-size: 0.72rem; font-weight: 500;">(Verification code has been logged to the DevOps system logs)</small>';
+                submitBtn.innerText = 'Reset Password';
+                switchDiv.style.display = 'none';
+                backToLoginDiv.style.display = 'block';
+            }
+        }
+
+        function toggleAuthMode() {
+            if (authMode === 'login') {
+                setAuthMode('register');
+            } else {
+                setAuthMode('login');
+            }
+        }
+
+        async function submitAuth() {
+            const email = document.getElementById('auth-email').value.trim();
+            const errorDiv = document.getElementById('auth-error');
+            const submitBtn = document.getElementById('btn-auth-submit');
+
+            if (!email) {
+                errorDiv.innerText = 'Email is required';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            if (authMode === 'login' || authMode === 'register') {
+                const password = document.getElementById('auth-password').value;
+                if (!password) {
+                    errorDiv.innerText = 'Password is required';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+
+                errorDiv.style.display = 'none';
+                submitBtn.disabled = true;
+
+                const url = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+                    const data = await response.json();
+                    submitBtn.disabled = false;
+
+                    if (response.ok && data.success) {
+                        if (authMode === 'login') {
+                            loggedInUser = data.user;
+                            localStorage.setItem('foros_user', JSON.stringify(data.user));
+                            localStorage.setItem('foros_session_id', data.session_id);
+                            
+                            // Firebase Analytics Login Event
+                            if (typeof firebaseAnalytics !== 'undefined' && firebaseAnalytics) {
+                                firebaseAnalytics.logEvent('login', { method: 'email', email: email });
+                            }
+
+                            // Clear input fields
+                            document.getElementById('auth-email').value = '';
+                            document.getElementById('auth-password').value = '';
+                            
+                            showMainDashboard();
+                        } else {
+                            // Firebase Analytics Registration Event
+                            if (typeof firebaseAnalytics !== 'undefined' && firebaseAnalytics) {
+                                firebaseAnalytics.logEvent('sign_up', { email: email });
+                            }
+
+                            alert('Registration successful! Please log in.');
+                            setAuthMode('login');
+                        }
+                    } else {
+                        errorDiv.innerText = data.error || 'Authentication failed';
+                        errorDiv.style.display = 'block';
+                    }
+                } catch (err) {
+                    submitBtn.disabled = false;
+                    errorDiv.innerText = 'Server communication error: ' + err.message;
+                    errorDiv.style.display = 'block';
+                }
+            } else if (authMode === 'forgot') {
+                errorDiv.style.display = 'none';
+                submitBtn.disabled = true;
+
+                try {
+                    const response = await fetch('/api/auth/forgot-password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email })
+                    });
+                    const data = await response.json();
+                    submitBtn.disabled = false;
+
+                    if (response.ok && data.success) {
+                        alert('Recovery code generated. For testing, find it in the DevOps Panel logs.');
+                        setAuthMode('reset');
+                    } else {
+                        errorDiv.innerText = data.error || 'Failed to request recovery code';
+                        errorDiv.style.display = 'block';
+                    }
+                } catch (err) {
+                    submitBtn.disabled = false;
+                    errorDiv.innerText = 'Server communication error: ' + err.message;
+                    errorDiv.style.display = 'block';
+                }
+            } else if (authMode === 'reset') {
+                const code = document.getElementById('auth-code').value.trim();
+                const newPassword = document.getElementById('auth-new-password').value;
+
+                if (!code || !newPassword) {
+                    errorDiv.innerText = 'Verification code and new password are required';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+
+                errorDiv.style.display = 'none';
+                submitBtn.disabled = true;
+
+                try {
+                    const response = await fetch('/api/auth/reset-password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, code, new_password: newPassword })
+                    });
+                    const data = await response.json();
+                    submitBtn.disabled = false;
+
+                    if (response.ok && data.success) {
+                        alert('Password reset successfully! Please log in.');
+                        document.getElementById('auth-code').value = '';
+                        document.getElementById('auth-new-password').value = '';
+                        setAuthMode('login');
+                    } else {
+                        errorDiv.innerText = data.error || 'Failed to reset password';
+                        errorDiv.style.display = 'block';
+                    }
+                } catch (err) {
+                    submitBtn.disabled = false;
+                    errorDiv.innerText = 'Server communication error: ' + err.message;
+                    errorDiv.style.display = 'block';
+                }
+            }
+        }
+
+        async function logout() {
+            // Firebase Analytics Logout Event
+            if (typeof firebaseAnalytics !== 'undefined' && firebaseAnalytics) {
+                firebaseAnalytics.logEvent('logout');
+            }
+
+            const sessionId = localStorage.getItem('foros_session_id');
+            if (sessionId) {
+                try {
+                    await fetch('/api/auth/logout', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: parseInt(sessionId) })
+                    });
+                } catch (e) {
+                    console.error('Logout error:', e);
+                }
+            }
+            localStorage.removeItem('foros_user');
+            localStorage.removeItem('foros_session_id');
+            loggedInUser = null;
+            
+            // Re-render auth view
+            checkAuth();
+        }
+
+        let authBgScene, authBgCamera, authBgRenderer;
+        let authNodes = [];
+        let authLinesGeometry, authNodesGeometry;
+        let authRobotArm = {};
+        let authBox;
+        let isAuthBgActive = false;
+        let authBgAnimFrameId = null;
+
+        function initAuthBackground() {
+            const canvas = document.getElementById('auth-bg-canvas');
+            if (!canvas) return;
+
+            // Renderer
+            authBgRenderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+            authBgRenderer.setSize(window.innerWidth, window.innerHeight);
+            authBgRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            // Scene
+            authBgScene = new THREE.Scene();
+            // Fog to fade items into background
+            authBgScene.fog = new THREE.FogExp2(currentTheme === 'light' ? 0xf1f5f9 : 0x030712, 0.04);
+
+            // Camera
+            authBgCamera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            authBgCamera.position.set(0, 6, 16);
+            authBgCamera.lookAt(0, 1.5, 0);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.15);
+            authBgScene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0x06b6d4, 0.6);
+            dirLight.position.set(5, 10, 7);
+            authBgScene.add(dirLight);
+
+            const pointLight1 = new THREE.PointLight(0xa855f7, 0.8, 20); // Purple glow
+            pointLight1.position.set(-4, 3, 2);
+            authBgScene.add(pointLight1);
+
+            const pointLight2 = new THREE.PointLight(0x06b6d4, 0.8, 20); // Cyan glow
+            pointLight2.position.set(4, 1, -2);
+            authBgScene.add(pointLight2);
+
+            // 1. Create Neural Network (Constellation Effect)
+            const nodeCount = 55;
+            const nodePositions = new Float32Array(nodeCount * 3);
+            
+            for (let i = 0; i < nodeCount; i++) {
+                const node = {
+                    pos: new THREE.Vector3(
+                        (Math.random() - 0.5) * 35,
+                        (Math.random() - 0.5) * 15 + 4,
+                        (Math.random() - 0.5) * 20 - 5
+                    ),
+                    vel: new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.015,
+                        (Math.random() - 0.5) * 0.015,
+                        (Math.random() - 0.5) * 0.015
+                    )
+                };
+                authNodes.push(node);
+                nodePositions[i*3] = node.pos.x;
+                nodePositions[i*3+1] = node.pos.y;
+                nodePositions[i*3+2] = node.pos.z;
+            }
+
+            authNodesGeometry = new THREE.BufferGeometry();
+            authNodesGeometry.setAttribute('position', new THREE.BufferAttribute(nodePositions, 3));
+            
+            const nodeMaterial = new THREE.PointsMaterial({
+                color: 0x06b6d4,
+                size: 0.18,
+                transparent: true,
+                opacity: 0.7
+            });
+
+            const nodePoints = new THREE.Points(authNodesGeometry, nodeMaterial);
+            authBgScene.add(nodePoints);
+
+            // Create Lines for Constellation
+            authLinesGeometry = new THREE.BufferGeometry();
+            const maxConnections = nodeCount * 4;
+            const linePositions = new Float32Array(maxConnections * 3 * 2);
+            authLinesGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+            
+            const lineMaterial = new THREE.LineBasicMaterial({
+                color: 0x06b6d4,
+                transparent: true,
+                opacity: 0.12
+            });
+            const authLines = new THREE.LineSegments(authLinesGeometry, lineMaterial);
+            authBgScene.add(authLines);
+
+            // 2. Create Stylized Robot Arm
+            const armMaterial = new THREE.MeshStandardMaterial({
+                color: 0x1f2937,
+                roughness: 0.4,
+                metalness: 0.8
+            });
+            
+            const jointMaterial = new THREE.MeshStandardMaterial({
+                color: 0x06b6d4,
+                emissive: 0x06b6d4,
+                emissiveIntensity: 0.25,
+                roughness: 0.2,
+                metalness: 0.9
+            });
+
+            const armGroup = new THREE.Group();
+            armGroup.position.set(0, 0, 0);
+            authBgScene.add(armGroup);
+
+            // Base
+            const baseGeo = new THREE.CylinderGeometry(0.8, 0.9, 0.4, 16);
+            const baseMesh = new THREE.Mesh(baseGeo, armMaterial);
+            baseMesh.position.y = 0.2;
+            armGroup.add(baseMesh);
+
+            // Shoulder Joint Group
+            const shoulderJoint = new THREE.Group();
+            shoulderJoint.position.set(0, 0.4, 0);
+            armGroup.add(shoulderJoint);
+
+            const shoulderJointMesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), jointMaterial);
+            shoulderJoint.add(shoulderJointMesh);
+
+            // Upper Arm Group
+            const upperArmGroup = new THREE.Group();
+            shoulderJoint.add(upperArmGroup);
+
+            const upperArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.0, 16), armMaterial);
+            upperArmMesh.position.y = 1.0;
+            upperArmGroup.add(upperArmMesh);
+
+            // Elbow Joint
+            const elbowJoint = new THREE.Group();
+            elbowJoint.position.set(0, 2.0, 0);
+            upperArmGroup.add(elbowJoint);
+
+            const elbowJointMesh = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), jointMaterial);
+            elbowJoint.add(elbowJointMesh);
+
+            // Forearm Group
+            const forearmGroup = new THREE.Group();
+            elbowJoint.add(forearmGroup);
+
+            const forearmMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.8, 16), armMaterial);
+            forearmMesh.position.y = 0.9;
+            forearmGroup.add(forearmMesh);
+
+            // Wrist Joint
+            const wristJoint = new THREE.Group();
+            wristJoint.position.set(0, 1.8, 0);
+            forearmGroup.add(wristJoint);
+
+            const wristJointMesh = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 16), jointMaterial);
+            wristJoint.add(wristJointMesh);
+
+            // Hand
+            const handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.3), armMaterial);
+            handMesh.position.y = 0.15;
+            wristJoint.add(handMesh);
+
+            // Gripper fingers
+            const fingerMat = new THREE.MeshStandardMaterial({ color: 0x374151, roughness: 0.5 });
+            
+            const fingerLeft = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.1), fingerMat);
+            fingerLeft.position.set(-0.1, 0.3, 0);
+            wristJoint.add(fingerLeft);
+
+            const fingerRight = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.1), fingerMat);
+            fingerRight.position.set(0.1, 0.3, 0);
+            wristJoint.add(fingerRight);
+
+            authRobotArm = {
+                shoulderJoint,
+                upperArmGroup,
+                elbowJoint,
+                forearmGroup,
+                wristJoint,
+                fingerLeft,
+                fingerRight
+            };
+
+            // 3. Create Pick and Place Box
+            const boxGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+            const boxMat = new THREE.MeshStandardMaterial({
+                color: 0x3b82f6,
+                roughness: 0.3,
+                metalness: 0.1
+            });
+            authBox = new THREE.Mesh(boxGeo, boxMat);
+            authBgScene.add(authBox);
+
+            // Positions for pick and place
+            authRobotArm.pickPos = new THREE.Vector3(-2.2, 0.2, 1.2);
+            authRobotArm.placePos = new THREE.Vector3(2.2, 0.2, 1.2);
+            authBox.position.copy(authRobotArm.pickPos);
+
+            // Add simple floor grid
+            const gridHelper = new THREE.GridHelper(30, 30, 0x06b6d4, 0x1e293b);
+            gridHelper.position.y = 0;
+            gridHelper.material.opacity = 0.15;
+            gridHelper.material.transparent = true;
+            authBgScene.add(gridHelper);
+
+            // Window resize handler
+            window.addEventListener('resize', onAuthBgResize);
+        }
+
+        function onAuthBgResize() {
+            if (!authBgCamera || !authBgRenderer) return;
+            authBgCamera.aspect = window.innerWidth / window.innerHeight;
+            authBgCamera.updateProjectionMatrix();
+            authBgRenderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animateAuthBg() {
+            if (!isAuthBgActive) return;
+
+            authBgAnimFrameId = requestAnimationFrame(animateAuthBg);
+
+            // 1. Update Constellation Nodes
+            const nodePositions = authNodesGeometry.attributes.position.array;
+            for (let i = 0; i < authNodes.length; i++) {
+                const node = authNodes[i];
+                node.pos.add(node.vel);
+
+                // Boundary collision
+                if (Math.abs(node.pos.x) > 18) node.vel.x *= -1;
+                if (node.pos.y > 12 || node.pos.y < -2) node.vel.y *= -1;
+                if (Math.abs(node.pos.z) > 12) node.vel.z *= -1;
+
+                nodePositions[i*3] = node.pos.x;
+                nodePositions[i*3+1] = node.pos.y;
+                nodePositions[i*3+2] = node.pos.z;
+            }
+            authNodesGeometry.attributes.position.needsUpdate = true;
+
+            // Update Constellation Lines
+            const linePositions = authLinesGeometry.attributes.position.array;
+            let lineIndex = 0;
+            const threshold = 6.0;
+            const maxConnections = authNodes.length * 4;
+
+            for (let i = 0; i < authNodes.length; i++) {
+                const n1 = authNodes[i];
+                for (let j = i + 1; j < authNodes.length; j++) {
+                    const n2 = authNodes[j];
+                    const dist = n1.pos.distanceTo(n2.pos);
+                    if (dist < threshold) {
+                        linePositions[lineIndex++] = n1.pos.x;
+                        linePositions[lineIndex++] = n1.pos.y;
+                        linePositions[lineIndex++] = n1.pos.z;
+                        linePositions[lineIndex++] = n2.pos.x;
+                        linePositions[lineIndex++] = n2.pos.y;
+                        linePositions[lineIndex++] = n2.pos.z;
+                        
+                        if (lineIndex >= maxConnections * 6) break;
+                    }
+                }
+            }
+            
+            for (let i = lineIndex; i < linePositions.length; i++) {
+                linePositions[i] = 0;
+            }
+            authLinesGeometry.attributes.position.needsUpdate = true;
+
+            // 2. Animate Robotic Arm & Pick and Place Cycle
+            const cycleDuration = 7000;
+            const progress = (Date.now() % cycleDuration) / cycleDuration;
+
+            let targetBaseRotation = 0;
+            let targetUpperArmRotation = -0.4;
+            let targetElbowRotation = 1.0;
+            let targetWristRotation = -0.6;
+            let gripperWidth = 0.1;
+            
+            let attachBox = false;
+
+            const p_pick = authRobotArm.pickPos;
+            const p_place = authRobotArm.placePos;
+
+            if (progress >= 0.0 && progress < 0.15) {
+                const subProgress = progress / 0.15;
+                targetBaseRotation = -Math.PI / 4;
+                targetUpperArmRotation = THREE.MathUtils.lerp(-0.4, 0.4, subProgress);
+                targetElbowRotation = THREE.MathUtils.lerp(1.0, 1.6, subProgress);
+                targetWristRotation = THREE.MathUtils.lerp(-0.6, -1.0, subProgress);
+                gripperWidth = 0.1;
+                authBox.position.copy(p_pick);
+            } 
+            else if (progress >= 0.15 && progress < 0.20) {
+                const subProgress = (progress - 0.15) / 0.05;
+                targetBaseRotation = -Math.PI / 4;
+                targetUpperArmRotation = 0.4;
+                targetElbowRotation = 1.6;
+                targetWristRotation = -1.0;
+                gripperWidth = THREE.MathUtils.lerp(0.1, 0.05, subProgress);
+                authBox.position.copy(p_pick);
+            }
+            else if (progress >= 0.20 && progress < 0.35) {
+                const subProgress = (progress - 0.20) / 0.15;
+                targetBaseRotation = -Math.PI / 4;
+                targetUpperArmRotation = THREE.MathUtils.lerp(0.4, -0.4, subProgress);
+                targetElbowRotation = THREE.MathUtils.lerp(1.6, 0.8, subProgress);
+                targetWristRotation = THREE.MathUtils.lerp(-1.0, -0.4, subProgress);
+                gripperWidth = 0.05;
+                attachBox = true;
+            }
+            else if (progress >= 0.35 && progress < 0.65) {
+                const subProgress = (progress - 0.35) / 0.30;
+                targetBaseRotation = THREE.MathUtils.lerp(-Math.PI / 4, Math.PI / 4, subProgress);
+                targetUpperArmRotation = -0.4;
+                targetElbowRotation = 0.8;
+                targetWristRotation = -0.4;
+                gripperWidth = 0.05;
+                attachBox = true;
+            }
+            else if (progress >= 0.65 && progress < 0.80) {
+                const subProgress = (progress - 0.65) / 0.15;
+                targetBaseRotation = Math.PI / 4;
+                targetUpperArmRotation = THREE.MathUtils.lerp(-0.4, 0.4, subProgress);
+                targetElbowRotation = THREE.MathUtils.lerp(0.8, 1.6, subProgress);
+                targetWristRotation = THREE.MathUtils.lerp(-0.4, -1.0, subProgress);
+                gripperWidth = 0.05;
+                attachBox = true;
+            }
+            else if (progress >= 0.80 && progress < 0.85) {
+                const subProgress = (progress - 0.80) / 0.05;
+                targetBaseRotation = Math.PI / 4;
+                targetUpperArmRotation = 0.4;
+                targetElbowRotation = 1.6;
+                targetWristRotation = -1.0;
+                gripperWidth = THREE.MathUtils.lerp(0.05, 0.1, subProgress);
+                authBox.position.copy(p_place);
+            }
+            else if (progress >= 0.85 && progress < 1.00) {
+                const subProgress = (progress - 0.85) / 0.15;
+                targetBaseRotation = THREE.MathUtils.lerp(Math.PI / 4, -Math.PI / 4, subProgress);
+                targetUpperArmRotation = THREE.MathUtils.lerp(0.4, -0.4, subProgress);
+                targetElbowRotation = THREE.MathUtils.lerp(1.6, 1.0, subProgress);
+                targetWristRotation = THREE.MathUtils.lerp(-1.0, -0.6, subProgress);
+                gripperWidth = 0.1;
+                authBox.position.copy(p_place);
+            }
+
+            // Apply rotations
+            authRobotArm.shoulderJoint.rotation.y = targetBaseRotation;
+            authRobotArm.upperArmGroup.rotation.z = targetUpperArmRotation;
+            authRobotArm.elbowJoint.rotation.z = targetElbowRotation;
+            authRobotArm.wristJoint.rotation.z = targetWristRotation;
+            
+            authRobotArm.fingerLeft.position.x = -gripperWidth;
+            authRobotArm.fingerRight.position.x = gripperWidth;
+
+            // Attach box to hand
+            if (attachBox) {
+                const wristWorldPos = new THREE.Vector3();
+                authRobotArm.wristJoint.getWorldPosition(wristWorldPos);
+                wristWorldPos.y -= 0.45;
+                authBox.position.copy(wristWorldPos);
+            }
+
+            // Camera movement
+            const camAngle = Date.now() * 0.00005;
+            authBgCamera.position.x = Math.sin(camAngle) * 16;
+            authBgCamera.position.z = Math.cos(camAngle) * 16;
+            authBgCamera.lookAt(0, 1.5, 0);
+
+            authBgRenderer.render(authBgScene, authBgCamera);
+        }
+
+        function checkAuth() {
+            let userStr = localStorage.getItem('foros_user');
+            // Meta Global AI Developer Hackathon Public Access Mode:
+            // Automatically provision a public session so judges can test immediately without login
+            if (!userStr) {
+                const defaultPublicUser = { id: 1, email: 'judge@meta-hackathon.ai', subscription_status: 'active' };
+                localStorage.setItem('foros_user', JSON.stringify(defaultPublicUser));
+                userStr = JSON.stringify(defaultPublicUser);
+            }
+            const dashboardGrid = document.querySelector('.dashboard-grid');
+            const authGate = document.getElementById('auth-gate');
+            const userInfoPill = document.getElementById('user-info-pill');
+            const btnLogout = document.getElementById('btn-logout');
+            const header = document.getElementById('app-header');
+
+            if (userStr) {
+                loggedInUser = JSON.parse(userStr);
+                
+                // Show dashboard grid and hide auth gate
+                if (dashboardGrid) dashboardGrid.style.display = 'grid';
+                if (authGate) authGate.style.display = 'none';
+                if (header) header.style.display = 'flex';
+                
+                // Stop background animation
+                isAuthBgActive = false;
+                if (authBgAnimFrameId) {
+                    cancelAnimationFrame(authBgAnimFrameId);
+                    authBgAnimFrameId = null;
+                }
+                
+                // Show header badges
+                if (userInfoPill) {
+                    userInfoPill.style.display = 'flex';
+                    document.getElementById('user-email-label').innerText = loggedInUser.email;
+                }
+                if (btnLogout) btnLogout.style.display = 'flex';
+
+                // Display DevOps Panel Tab if Admin
+                const devopsTab = document.getElementById('tab-devops');
+                if (devopsTab) {
+                    devopsTab.style.display = (loggedInUser.email === 'admin@foros.run') ? 'block' : 'none';
+                }
+                
+                // Switch default tab
+                switchSimTab('3d');
+            } else {
+                // Hide dashboard and show auth gate
+                if (dashboardGrid) dashboardGrid.style.display = 'none';
+                if (authGate) authGate.style.display = 'flex';
+                if (header) header.style.display = 'none';
+                
+                // Hide header badges
+                if (userInfoPill) userInfoPill.style.display = 'none';
+                if (btnLogout) btnLogout.style.display = 'none';
+                
+                setAuthMode('login');
+
+                // Start background animation
+                if (!authBgScene) {
+                    initAuthBackground();
+                }
+                if (!isAuthBgActive) {
+                    isAuthBgActive = true;
+                    animateAuthBg();
+                }
+            }
+        }
+
+        function showMainDashboard() {
+            checkAuth();
+        }
+
+        async function refreshDevOpsData() {
+            if (!loggedInUser || loggedInUser.email !== 'admin@foros.run') return;
+
+            try {
+                // Fetch Metrics
+                const metricsResp = await fetch('/api/admin/metrics');
+                const metrics = await metricsResp.json();
+
+                // Update KPI Cards
+                document.getElementById('kpi-users').innerText = metrics.total_users || 0;
+                document.getElementById('kpi-subs').innerText = metrics.active_subscriptions || 0;
+                document.getElementById('kpi-hours').innerText = (metrics.total_duration_hours !== undefined ? metrics.total_duration_hours : 0.0) + 'h';
+                document.getElementById('kpi-ops').innerText = metrics.total_operations || 0;
+
+                // Update Users list
+                const tbody = document.getElementById('devops-users-tbody');
+                tbody.innerHTML = '';
+                if (metrics.users && metrics.users.length > 0) {
+                    metrics.users.forEach(u => {
+                        const tr = document.createElement('tr');
+                        
+                        const statusColor = u.subscription_status === 'active' ? 'var(--accent-green)' : 'var(--accent-red)';
+                        const statusLabel = u.subscription_status === 'active' ? 'Active' : 'Suspended';
+                        const actionBtnLabel = u.subscription_status === 'active' ? 'Suspend' : 'Activate';
+                        
+                        tr.innerHTML = `
+                            <td style="padding: 0.5rem; font-weight: 500;">${u.email}</td>
+                            <td style="padding: 0.5rem; color: var(--text-secondary);">${u.created_at}</td>
+                            <td style="padding: 0.5rem; text-align: center;">${u.session_count}</td>
+                            <td style="padding: 0.5rem; color: ${statusColor}; font-weight: 600;">${statusLabel}</td>
+                            <td style="padding: 0.5rem; text-align: right;">
+                                ${u.email !== 'admin@foros.run' ? `<button class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.72rem; border-color: ${statusColor}; color: ${statusColor};" onclick="toggleUserSubscription(${u.id})">${actionBtnLabel}</button>` : '<span style="font-size: 0.7rem; color: var(--text-secondary);">SuperAdmin</span>'}
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 1rem; color: var(--text-secondary);">No registered clients yet.</td></tr>';
+                }
+
+                // Update Brand distributions
+                const statsDiv = document.getElementById('devops-brand-stats');
+                statsDiv.innerHTML = '';
+                const brands = metrics.brands || {};
+                const totalOps = metrics.total_operations || 0;
+                
+                if (Object.keys(brands).length > 0) {
+                    for (const [brand, count] of Object.entries(brands)) {
+                        const pct = totalOps > 0 ? ((count / totalOps) * 100).toFixed(0) : 0;
+                        const row = document.createElement('div');
+                        row.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.15rem;">
+                                <span>${brand.toUpperCase()}</span>
+                                <span style="color: var(--text-secondary); font-weight: 500;">${count} operations (${pct}%)</span>
+                            </div>
+                            <div class="devops-bar-bg">
+                                <div class="devops-bar-fill" style="width: ${pct}%;"></div>
+                            </div>
+                        `;
+                        statsDiv.appendChild(row);
+                    }
+                } else {
+                    statsDiv.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 1rem;">No robot operations recorded yet.</div>';
+                }
+
+                // Fetch & Update Database Logs
+                const logsResp = await fetch('/api/admin/logs');
+                const logs = await logsResp.json();
+                
+                const logsDiv = document.getElementById('devops-db-logs');
+                logsDiv.innerHTML = '';
+                if (logs && logs.length > 0) {
+                    logs.forEach(l => {
+                        const colorMap = {
+                            'INFO': '#60a5fa',
+                            'SUCCESS': 'var(--accent-green)',
+                            'WARNING': 'var(--accent-orange)',
+                            'ERROR': 'var(--accent-red)'
+                        };
+                        const logColor = colorMap[l.level] || 'var(--text-primary)';
+                        const logLine = document.createElement('div');
+                        logLine.style.marginBottom = '0.2rem';
+                        logLine.innerHTML = `<span style="color: var(--text-secondary);">[${l.timestamp}]</span> <span style="color: ${logColor}; font-weight: 600;">[${l.level}]</span> <span>${l.message}</span>`;
+                        logsDiv.appendChild(logLine);
+                    });
+                } else {
+                    logsDiv.innerHTML = '<div style="color: var(--text-secondary);">No database logs yet.</div>';
+                }
+
+            } catch (err) {
+                console.error("Failed to fetch DevOps data:", err);
+            }
+        }
+
+        async function toggleUserSubscription(userId) {
+            try {
+                const response = await fetch('/api/admin/toggle_subscription', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        requester_email: loggedInUser.email,
+                        user_id: userId
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    refreshDevOpsData();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (e) {
+                alert('Connection error: ' + e.message);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // Initialize Page
+        // ═══════════════════════════════════════════════════════════════
+        document.addEventListener('DOMContentLoaded', () => {
+            init3D();
+            
+            document.getElementById('btn-generate').addEventListener('click', processPrompt);
+            document.getElementById('btn-send').addEventListener('click', sendCode);
+            document.getElementById('btn-stop').addEventListener('click', sendStop);
+            document.getElementById('btn-home').addEventListener('click', sendHome);
+            document.getElementById('btn-power').addEventListener('click', sendPower);
+
+            // Verify authentication
+            checkAuth();
+
+            // Boot with default platform (urscript)
+            onProtocolChange('urscript');
+            updateLanguage();
+            scanWorkspaceSAM(true);
+
+            log('logInitOS', 'info');
+            log('Meta Muse Spatial Planner + SAM 3.1 Vision Grounding + FOROS Compiler initialized.', 'success');
+
+            setInterval(pollStatus, 100);
+        });
+    </script>
+    
+    <!-- SaaS Authentication Gate -->
+    <div id="auth-gate" style="display: none; position: relative;">
+        <!-- Glowing 3D Neural Network & Robotic Arm Background -->
+        <canvas id="auth-bg-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none;"></canvas>
+        <div class="auth-card" style="position: relative; z-index: 2;">
+            <div style="text-align: center;">
+                <img id="auth-logo-img" src="/logo_light.png" 
+                     style="width: 260px; height: auto; margin: 0.5rem auto 1.2rem auto; display: block; filter: drop-shadow(0 0 10px rgba(6, 182, 212, 0.35)); transition: all 0.3s ease; cursor: pointer;" 
+                     onmouseover="this.style.filter='drop-shadow(0 0 18px rgba(6, 182, 212, 0.65))'; this.style.transform='scale(1.02)';" 
+                     onmouseout="this.style.filter='drop-shadow(0 0 10px rgba(6, 182, 212, 0.35))'; this.style.transform='scale(1.0)';" 
+                     alt="FOROS Action Engine">
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;" id="auth-subtitle">Sign in to control your automation instances</p>
+            </div>
+            
+            <div id="auth-error" style="color: var(--accent-red); font-size: 0.8rem; text-align: center; display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 0.5rem; border-radius: 6px;"></div>
+ 
+            <!-- Form Fields -->
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <!-- Email container -->
+                <div id="auth-email-container" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    <label style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Email Address</label>
+                    <input type="email" id="auth-email" placeholder="name@company.com" class="auth-input" />
+                </div>
+                <!-- Password container (Login/Register) -->
+                <div id="auth-password-container" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    <label style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Password</label>
+                    <input type="password" id="auth-password" placeholder="••••••••" class="auth-input" onkeydown="if(event.key==='Enter') submitAuth()" />
+                </div>
+                <!-- Forgot Password Link container (only for login state) -->
+                <div id="auth-forgot-link-container" style="text-align: right; margin-top: -0.5rem;">
+                    <a href="#" onclick="setAuthMode('forgot')" style="font-size: 0.75rem; color: var(--accent-cyan); text-decoration: none;">Forgot password?</a>
+                </div>
+                <!-- Verification Code container (Reset state) -->
+                <div id="auth-code-container" style="display: none; flex-direction: column; gap: 0.35rem;">
+                    <label style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Verification Code</label>
+                    <input type="text" id="auth-code" placeholder="123456" class="auth-input" />
+                </div>
+                <!-- New Password container (Reset state) -->
+                <div id="auth-new-password-container" style="display: none; flex-direction: column; gap: 0.35rem;">
+                    <label style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">New Password</label>
+                    <input type="password" id="auth-new-password" placeholder="••••••••" class="auth-input" onkeydown="if(event.key==='Enter') submitAuth()" />
+                </div>
+            </div>
+ 
+            <button class="btn btn-cyan" id="btn-auth-submit" onclick="submitAuth()" style="width: 100%; padding: 0.75rem;">Sign In</button>
+ 
+            <!-- Mode switching controls -->
+            <div style="text-align: center; font-size: 0.8rem; color: var(--text-secondary); display: flex; flex-direction: column; gap: 0.5rem;">
+                <div>
+                    <span id="auth-switch-text">Don't have an account?</span> 
+                    <a href="#" id="auth-switch-link" onclick="toggleAuthMode()" style="color: var(--accent-cyan); text-decoration: none; font-weight: 600; margin-left: 0.25rem;">Create account</a>
+                </div>
+                <div id="auth-back-to-login" style="display: none;">
+                    <a href="#" onclick="setAuthMode('login')" style="color: var(--accent-cyan); text-decoration: none; font-weight: 600;">Back to Sign In</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

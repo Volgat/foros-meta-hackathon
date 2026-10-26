@@ -1,0 +1,53 @@
+# ROS 1 Noetic + Gazebo + noVNC — FOROS Simulator Pipeline
+# =====================================================================
+# Foros → ROS1 Pipeline — AMEFORGE
+# =====================================================================
+# Ports:
+#   6081  → noVNC browser (Gazebo + ROS terminal)
+#   5901  → VNC direct
+#   9090  → rosbridge WebSocket (ROS1 command interface)
+#   8765  → FOROS feedback HTTP endpoint (/api/status)
+#
+# Démarrage:
+#   docker compose -f simulators/ros1/docker-compose.ros1.yml up --build
+#
+# Interface VNC:
+#   http://localhost:6081
+#   Le terminal affiche les topics actifs et les commandes reçues
+#
+# Protocol FOROS sélectionné: ros1
+# =====================================================================
+
+services:
+  foros_ros1:
+    build:
+      context: ./
+      dockerfile: Dockerfile.ros1.vnc
+    container_name: foros_ros1_noetic
+    privileged: false
+    cpus: "2.0"
+    mem_limit: "3g"
+    shm_size: "1g"
+    environment:
+      - ROS_DISTRO=noetic
+      - ROS_MASTER_URI=http://localhost:11311
+      - DISPLAY=:1
+      - FOROS_PLATFORM=ros1
+    ports:
+      - "6081:6081"      # noVNC — Gazebo + ROS terminal
+      - "5901:5901"      # VNC direct
+      - "9090:9090"      # rosbridge WebSocket
+      - "8765:8765"      # FOROS feedback HTTP
+    volumes:
+      - ros1_programs:/ros_ws/foros_programs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/api/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  ros1_programs:
+    name: foros_ros1_programs

@@ -1,0 +1,165 @@
+# =============================================================================
+#  FOROS Action Engine — Docker Compose MASTER (Tous les Simulateurs)
+#  AMEFORGE — github.com/Volgat/foros
+# =============================================================================
+#
+#  Démarrage COMPLET (tous les sims):
+#    docker compose -f simulators/docker-compose.all.yml up --build
+#
+#  Démarrage SÉLECTIF (ex: UR5e + KUKA seulement):
+#    docker compose -f simulators/docker-compose.all.yml up foros_ursim foros_kuka
+#
+#  Ports noVNC par simulateur:
+#    http://localhost:6080  → Universal Robots UR5e (Polyscope / URSim)
+#    http://localhost:6081  → ROS 1 Noetic + Gazebo
+#    http://localhost:6082  → ROS 2 Humble + Ignition
+#    http://localhost:6083  → KUKA KRL (terminal mock controller)
+#    http://localhost:6084  → ABB RAPID (terminal mock controller)
+#    http://localhost:6085  → Fanuc Karel (terminal mock controller)
+#    http://localhost:6086  → Doosan DRL (terminal mock controller)
+#
+#  Ports HTTP Feedback (/api/status) par simulateur:
+#    http://localhost:30004 → UR5e RTDE (via ursim_feedback.py)
+#    http://localhost:8765  → ROS1
+#    http://localhost:8766  → KUKA
+#    http://localhost:8767  → ABB
+#    http://localhost:8768  → Fanuc
+#    http://localhost:8769  → Doosan
+#
+#  Mot de passe VNC: foros2024 (configurable via env VNC_PASSWORD)
+# =============================================================================
+
+services:
+
+  # ── Universal Robots UR5e — URSim e-Series ─────────────────────────────────
+  foros_ursim:
+    image: universalrobots/ursim_e-series
+    container_name: foros_ursim_ur5e
+    privileged: true
+    cpus: "1.5"
+    mem_limit: "2g"
+    stdin_open: true
+    tty: true
+    network_mode: "host"
+    environment:
+      - ROBOT_MODEL=UR5
+    volumes:
+      - ../ursim_programs:/ursim/programs
+    restart: unless-stopped
+    profiles: ["ursim", "all"]
+
+  # ── ROS 1 Noetic + Gazebo ──────────────────────────────────────────────────
+  foros_ros1:
+    build:
+      context: ./ros1
+      dockerfile: Dockerfile.ros1.vnc
+    container_name: foros_ros1_noetic
+    cpus: "2.0"
+    mem_limit: "3g"
+    shm_size: "1g"
+    network_mode: "host"
+    environment:
+      - ROS_DISTRO=noetic
+      - ROS_MASTER_URI=http://localhost:11311
+      - DISPLAY=:1
+    volumes:
+      - ros1_programs:/ros_ws/foros_programs
+    restart: unless-stopped
+    profiles: ["ros1", "ros", "all"]
+
+  # ── ROS 2 Humble + Ignition Gazebo ────────────────────────────────────────
+  foros_ros2:
+    build:
+      context: ./ros2
+      dockerfile: Dockerfile.ros2.vnc
+    container_name: foros_ros2_humble
+    cpus: "2.0"
+    mem_limit: "3g"
+    shm_size: "1g"
+    network_mode: "host"
+    environment:
+      - ROS_DISTRO=humble
+      - DISPLAY=:2
+    volumes:
+      - ros2_programs:/ros2_ws/foros_programs
+      - ./ros2/supervisord.conf:/etc/supervisor/conf.d/ros2.conf
+    restart: unless-stopped
+    profiles: ["ros2", "ros", "all"]
+
+  # ── KUKA KRL Mock Controller ───────────────────────────────────────────────
+  foros_kuka:
+    build:
+      context: ./kuka/kuka_mock_controller
+      dockerfile: Dockerfile
+    container_name: foros_kuka_controller
+    cpus: "0.5"
+    mem_limit: "512m"
+    network_mode: "host"
+    volumes:
+      - kuka_programs:/app/programs
+      - ./kuka/kuka_mock_controller/supervisord.conf:/etc/supervisor/conf.d/kuka.conf
+    restart: unless-stopped
+    profiles: ["kuka", "industrial", "all"]
+
+  # ── ABB RAPID Mock Controller ──────────────────────────────────────────────
+  foros_abb:
+    build:
+      context: ./abb/abb_mock_controller
+      dockerfile: Dockerfile
+    container_name: foros_abb_controller
+    cpus: "0.5"
+    mem_limit: "512m"
+    network_mode: "host"
+    volumes:
+      - abb_programs:/app/programs
+      - ./abb/abb_mock_controller/supervisord.conf:/etc/supervisor/conf.d/abb.conf
+    restart: unless-stopped
+    profiles: ["abb", "industrial", "all"]
+
+  # ── Fanuc Karel Mock Controller ────────────────────────────────────────────
+  foros_fanuc:
+    build:
+      context: ./fanuc/fanuc_mock_controller
+      dockerfile: Dockerfile
+    container_name: foros_fanuc_controller
+    cpus: "0.5"
+    mem_limit: "512m"
+    network_mode: "host"
+    volumes:
+      - fanuc_programs:/app/programs
+      - ./fanuc/fanuc_mock_controller/supervisord.conf:/etc/supervisor/conf.d/fanuc.conf
+    restart: unless-stopped
+    profiles: ["fanuc", "industrial", "all"]
+
+  # ── Doosan DRL Mock Controller ─────────────────────────────────────────────
+  foros_doosan:
+    build:
+      context: ./doosan/doosan_mock_controller
+      dockerfile: Dockerfile
+    container_name: foros_doosan_controller
+    cpus: "0.5"
+    mem_limit: "512m"
+    network_mode: "host"
+    volumes:
+      - doosan_programs:/app/programs
+      - ./doosan/doosan_mock_controller/supervisord.conf:/etc/supervisor/conf.d/doosan.conf
+    restart: unless-stopped
+    profiles: ["doosan", "industrial", "all"]
+
+volumes:
+  ros1_programs:    { name: foros_ros1_programs }
+  ros2_programs:    { name: foros_ros2_programs }
+  kuka_programs:    { name: foros_kuka_programs }
+  abb_programs:     { name: foros_abb_programs }
+  fanuc_programs:   { name: foros_fanuc_programs }
+  doosan_programs:  { name: foros_doosan_programs }
+
+# =============================================================================
+# Commandes utiles:
+#   Tous les sims:            docker compose ... --profile all up
+#   UR + KUKA seulement:      docker compose ... --profile ursim --profile kuka up
+#   Tous les industriels:     docker compose ... --profile industrial up
+#   Arrêt propre:             docker compose ... down
+#   Logs en direct:           docker compose ... logs -f
+#   Rebuild un service:       docker compose ... build foros_kuka
+# =============================================================================
