@@ -1,0 +1,43 @@
+# KUKA KRL Mock Controller — FOROS Simulator Pipeline
+# =====================================================================
+# Foros → KUKA KRL Pipeline — AMEFORGE
+# =====================================================================
+# Ports:
+#   6083  → noVNC (terminal KRL live) : http://localhost:6083
+#   5902  → VNC direct
+#   7000  → TCP KRL reception (FOROS bridge → mock controller)
+#   8766  → HTTP feedback FOROS (/api/status)
+#
+# Démarrage:
+#   docker compose -f simulators/kuka/docker-compose.kuka.yml up --build
+#
+# Connexion bridge:
+#   python simulators/kuka/kuka_bridge.py --host 127.0.0.1
+# =====================================================================
+
+services:
+  foros_kuka:
+    build:
+      context: ./kuka_mock_controller
+      dockerfile: Dockerfile
+    container_name: foros_kuka_controller
+    cpus: "0.5"
+    mem_limit: "512m"
+    ports:
+      - "6083:6083"      # noVNC — KRL terminal visuel
+      - "5902:5902"      # VNC direct
+      - "7000:7000"      # TCP KRL reception
+      - "8766:8766"      # HTTP feedback FOROS
+    volumes:
+      - kuka_programs:/app/programs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8766/api/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  kuka_programs:
+    name: foros_kuka_programs

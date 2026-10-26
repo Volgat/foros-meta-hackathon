@@ -1,0 +1,60 @@
+# =============================================================================
+#  FOROS — ROS 1 Noetic + Gazebo 11 + noVNC Simulator
+#  Base: Ubuntu 20.04 (ROS Noetic native)
+#  Access: http://localhost:6081 (noVNC browser) or VNC :1 (port 5901)
+# =============================================================================
+FROM osrf/ros:noetic-desktop-full
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    DISPLAY=:1 \
+    VNC_PORT=5901 \
+    NOVNC_PORT=6081 \
+    ROS_DISTRO=noetic \
+    LANG=en_US.UTF-8
+
+# ── System packages ───────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # VNC / X11
+    tigervnc-standalone-server tigervnc-common \
+    xterm x11-utils dbus-x11 \
+    openbox obconf \
+    # noVNC
+    python3-websockify novnc \
+    # ROS extras
+    ros-noetic-gazebo-ros-pkgs \
+    ros-noetic-gazebo-ros-control \
+    ros-noetic-robot-state-publisher \
+    ros-noetic-joint-state-publisher-gui \
+    ros-noetic-rosbridge-suite \
+    ros-noetic-rospy-message-converter \
+    ros-noetic-actionlib \
+    ros-noetic-moveit \
+    # Tools
+    git curl wget python3-pip supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python deps ───────────────────────────────────────────────────────────────
+RUN pip3 install --no-cache-dir websockets asyncio
+
+# ── noVNC setup ───────────────────────────────────────────────────────────────
+RUN ln -sf /usr/share/novnc/utils/launch.sh /usr/local/bin/novnc_start && \
+    ln -sf /usr/share/novnc /opt/novnc
+
+# ── ROS workspace ─────────────────────────────────────────────────────────────
+RUN mkdir -p /ros_ws/src && \
+    /bin/bash -c "source /opt/ros/noetic/setup.bash && cd /ros_ws && catkin_make"
+
+# ── supervisord configuration ─────────────────────────────────────────────────
+COPY supervisord.conf /etc/supervisor/conf.d/foros_ros1.conf
+
+# ── Startup scripts ───────────────────────────────────────────────────────────
+COPY start_vnc.sh /start_vnc.sh
+COPY start_ros.sh /start_ros.sh
+RUN chmod +x /start_vnc.sh /start_ros.sh
+
+# ── rosbridge feedback server ─────────────────────────────────────────────────
+COPY ros1_feedback_server.py /ros1_feedback_server.py
+
+EXPOSE 5901 6081 9090
+
+CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
