@@ -1421,6 +1421,15 @@
                 <button class="tab-btn" id="tab-code" onclick="switchTab('code')">Robot Script</button>
             </div>
 
+            <!-- Live Engine Mode Verification Bar -->
+            <div id="engine-mode-banner" style="display:flex;align-items:center;justify-content:space-between;padding:0.42rem 0.65rem;margin-bottom:0.45rem;border-radius:6px;background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.28);font-family:var(--font-code);font-size:0.68rem;">
+                <span style="display:inline-flex;align-items:center;gap:0.4rem;font-weight:700;color:var(--accent-cyan);" id="engine-mode-text">
+                    <span id="engine-mode-dot" style="width:7px;height:7px;border-radius:50%;background:var(--accent-cyan);display:inline-block;box-shadow:0 0 6px var(--accent-cyan);"></span>
+                    <span id="engine-mode-label">ENGINE: META API READY (muse-spark-1.3 + sam-3.1)</span>
+                </span>
+                <span id="engine-mode-meta" style="color:var(--text-secondary);font-size:0.64rem;">STANDBY</span>
+            </div>
+
             <div class="code-container">
                 <button class="btn btn-outline copy-btn" id="btn-copy" onclick="copyCode()">Copy</button>
 
@@ -1933,7 +1942,7 @@
         let generatedOps = null;
         let generatedCode = '';
         let feedbackState = null;
-        let simCardDismissed = false;
+        let simCardDismissed = true;
         let loggedInUser = null;
         let authMode = 'login';
 
@@ -2054,8 +2063,8 @@
             const p = PLATFORMS[val];
             if (!p) return;
 
-            // Reset sim card dismiss when switching platform
-            simCardDismissed = false;
+            // Keep URSim card dismissed since URSim is pre-configured on the server
+            simCardDismissed = (val === 'urscript');
 
             // Update header platform badge
             document.getElementById('platform-icon').innerText = p.icon;
@@ -2381,7 +2390,7 @@
         function selectVisionObject(objId) {
             const obj = samObjectsCache.find(o => o.id === objId);
             if (!obj) return;
-            const tray = samObjectsCache.find(o => o.id === 'zone_tray_delta') || { xyz: [-0.28, -0.22, 0.20], label: 'Inspection Tray D' };
+            const tray = samObjectsCache.find(o => o.id === 'zone_tray_delta') || { xyz: [-0.24, -0.26, 0.20], label: 'Inspection Tray D' };
             const [sx, sy, sz] = obj.xyz;
             const [dx, dy, dz] = tray.xyz;
 
@@ -2621,6 +2630,33 @@
                     document.getElementById('code-robot').innerText = data.robot_code;
                     if (data.reasoning_steps) {
                         renderReasoningSteps(data.reasoning_steps, data.engine_label);
+                    }
+                    // Update Live Engine Mode Verification Banner
+                    const banner = document.getElementById('engine-mode-banner');
+                    const dot = document.getElementById('engine-mode-dot');
+                    const lbl = document.getElementById('engine-mode-label');
+                    const meta = document.getElementById('engine-mode-meta');
+                    const txt = document.getElementById('engine-mode-text');
+                    if (banner && lbl && meta && dot && txt) {
+                        if (data.engine_mode === 'muse_api_live') {
+                            banner.style.background = 'rgba(16, 185, 129, 0.10)';
+                            banner.style.borderColor = 'rgba(16, 185, 129, 0.40)';
+                            txt.style.color = 'var(--accent-green)';
+                            dot.style.background = 'var(--accent-green)';
+                            dot.style.boxShadow = '0 0 8px var(--accent-green)';
+                            lbl.innerText = 'ENGINE MODE: LIVE META API (muse-spark-1.3)';
+                            meta.innerText = `${data.json_ops.length} ops | ${(data.latency_ms / 1000).toFixed(2)}s`;
+                            log(`Verified Live Meta API execution (muse-spark-1.3) — ${data.json_ops.length} atomic ops synthesized.`, 'success');
+                        } else {
+                            banner.style.background = 'rgba(245, 158, 11, 0.10)';
+                            banner.style.borderColor = 'rgba(245, 158, 11, 0.40)';
+                            txt.style.color = '#f59e0b';
+                            dot.style.background = '#f59e0b';
+                            dot.style.boxShadow = '0 0 8px #f59e0b';
+                            lbl.innerText = 'ENGINE MODE: DETERMINISTIC FALLBACK PLANNER';
+                            meta.innerText = `${data.json_ops.length} ops | ${data.latency_ms.toFixed(0)}ms`;
+                            log(`Executed via Deterministic Spatial Fallback Planner (${data.json_ops.length} ops).`, 'warning');
+                        }
                     }
                     if (data.grounded_objects && data.grounded_objects.length > 0) {
                         const names = data.grounded_objects.map(o => o.label).join(', ');
