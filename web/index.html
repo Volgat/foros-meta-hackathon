@@ -1193,19 +1193,19 @@
                 
                 <h4 id="lbl-example-tasks" style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; margin-top: 0.25rem;">Example Tasks</h4>
                 <div class="example-chips">
-                    <button class="chip" id="chip-pick-place" onclick="loadPrompt('pick up workpiece at x=0.3 y=-0.2 z=0.2 and place it at x=-0.3 y=0.3 z=0.2')">
+                    <button class="chip" id="chip-pick-place" onclick="loadPrompt('Pick up Steel Spur Gear B and place it on Inspection Tray D')">
                         Composed Pick &amp; Place
                     </button>
-                    <button class="chip" id="chip-safety" onclick="loadPrompt('if collision then stop. transition to ERROR_RECOVERY: go home, open gripper')">
+                    <button class="chip" id="chip-safety" onclick="loadPrompt('If collision detected then stop immediately, open gripper, and return home')">
                         Error Detection &amp; FSM
                     </button>
-                    <button class="chip" id="chip-repeat" onclick="loadPrompt('repeat 3 times: move to x=0.2 y=-0.1 z=0.4 then wait 1.0s')">
+                    <button class="chip" id="chip-repeat" onclick="loadPrompt('Repeat 3 times: move to PCB Sensor Module C at x=0.18 y=-0.32 z=0.30 then wait 1.0s')">
                         3x Repeat Loop
                     </button>
-                    <button class="chip" id="chip-control" onclick="loadPrompt('run control loop at 50Hz for 3.0 seconds doing move to x=0.2 y=0.2 z=0.4')">
-                        50Hz Feedback Loop
+                    <button class="chip" id="chip-control" onclick="loadPrompt('Pick up Aluminum Block A, place it on Inspection Tray D, then pick up Steel Spur Gear B')">
+                        Multi-Object Sequence
                     </button>
-                    <button class="chip" id="chip-patrol" onclick="loadPrompt('patrol: set speed 0.4, move to x=0.4 y=0.0 z=0.3, move to x=0.4 y=0.4 z=0.3, then go home')">
+                    <button class="chip" id="chip-patrol" onclick="loadPrompt('Patrol at speed=0.30: move to x=0.28 y=-0.22 z=0.40, move to x=0.18 y=-0.32 z=0.40, move to x=-0.28 y=-0.22 z=0.40, then go home')">
                         Multi-point Patrol
                     </button>
                 </div>
@@ -1791,7 +1791,7 @@
                 examplePickPlace: "Pick & Place composé",
                 exampleSafety: "Détection d'Erreur & FSM",
                 exampleRepeat: "Boucle répétitive 3x",
-                exampleControl: "Boucle de rétroaction 50Hz",
+                exampleControl: "Séquence Multi-Objets",
                 examplePatrol: "Patrouille multi-points",
                 btnStop: "Arrêt d'Urgence",
                 btnHome: "Retour Home Position",
@@ -1857,7 +1857,7 @@
                 examplePickPlace: "Composed Pick & Place",
                 exampleSafety: "Error Detection & FSM",
                 exampleRepeat: "3x Repeat Loop",
-                exampleControl: "50Hz Feedback Loop",
+                exampleControl: "Multi-Object Sequence",
                 examplePatrol: "Multi-point Patrol",
                 btnStop: "Emergency Stop",
                 btnHome: "Return Home Position",
@@ -2411,6 +2411,13 @@
 
             container.innerHTML = '';
             steps.forEach((step, idx) => {
+                const statusText = (step.status || 'VERIFIED').toUpperCase();
+                let statusColor = 'var(--accent-green)';
+                if (statusText.includes('REJECTED') || statusText.includes('BLOCKED')) {
+                    statusColor = 'var(--accent-red)';
+                } else if (statusText.includes('HOLD') || statusText.includes('STANDBY') || statusText.includes('CLAMP')) {
+                    statusColor = '#f59e0b';
+                }
                 const card = document.createElement('div');
                 card.className = 'reasoning-step-card';
                 card.innerHTML = `
@@ -2419,7 +2426,7 @@
                             <svg class="svg-icon" style="width:12px;height:12px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
                             <span>0${idx + 1} // ${step.phase}</span>
                         </span>
-                        <span style="color:var(--accent-green);">VERIFIED</span>
+                        <span style="color:${statusColor};font-weight:700;">${statusText}</span>
                     </div>
                     <div class="reasoning-step-title">${step.title}</div>
                     <div class="reasoning-step-detail">${step.detail}</div>
@@ -2638,7 +2645,16 @@
                     const meta = document.getElementById('engine-mode-meta');
                     const txt = document.getElementById('engine-mode-text');
                     if (banner && lbl && meta && dot && txt) {
-                        if (data.engine_mode === 'muse_api_live') {
+                        if (data.safety_rejected) {
+                            banner.style.background = 'rgba(239, 68, 68, 0.12)';
+                            banner.style.borderColor = 'rgba(239, 68, 68, 0.45)';
+                            txt.style.color = 'var(--accent-red)';
+                            dot.style.background = 'var(--accent-red)';
+                            dot.style.boxShadow = '0 0 8px var(--accent-red)';
+                            lbl.innerText = `ISO-10218 SAFETY REJECTION: ${data.rejection_reason || 'ZERO MOTION EMITTED'}`;
+                            meta.innerText = 'SAFE HOLD';
+                            log(`ISO-10218 Safety Gate rejected trajectory: ${data.rejection_reason}`, 'warning');
+                        } else if (data.engine_mode === 'muse_api_live') {
                             banner.style.background = 'rgba(16, 185, 129, 0.10)';
                             banner.style.borderColor = 'rgba(16, 185, 129, 0.40)';
                             txt.style.color = 'var(--accent-green)';

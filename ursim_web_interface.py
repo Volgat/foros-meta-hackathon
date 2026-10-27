@@ -352,6 +352,8 @@ class WebServerHandler(BaseHTTPRequestHandler):
                     "robot_code": code,
                     "reasoning_steps": infer_res.get("reasoning_steps", []),
                     "grounded_objects": infer_res.get("grounded_objects", []),
+                    "safety_rejected": infer_res.get("safety_rejected", False),
+                    "rejection_reason": infer_res.get("rejection_reason", ""),
                     "engine_mode": infer_res.get("engine_mode", "foros_hybrid"),
                     "engine_label": infer_res.get("engine_label", bridge.active_engine_name),
                     "latency_ms": latency_ms
