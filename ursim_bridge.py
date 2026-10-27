@@ -189,15 +189,18 @@ class ForosBridge:
         self.sam_model     = os.environ.get("SAM_MODEL", "sam-3.1")
         self.voice_model   = os.environ.get("VOICE_MODEL", "muse-voice-transcribe-1.0")
 
-        # Calibrated SAM 3.1 overhead camera workcell objects (UR5e front worktable hemisphere, singularity-free)
+        # Calibrated SAM 3.1 overhead camera workcell objects (UR5e base frame in meters)
         self._workcell_objects = [
             {
                 "id": "obj_block_alpha",
                 "label": "Aluminum Block A",
-                "aliases": ["aluminum block", "block a", "red block", "metal block", "workpiece a", "cube"],
+                "aliases": [
+                    "aluminum block", "block a", "red block", "cyan block", "blue block",
+                    "metal block", "workpiece a", "cube", "block", "bloc a", "bloc",
+                ],
                 "category": "Machined Billet",
                 "confidence": 0.992,
-                "xyz": [0.26, -0.26, 0.20],
+                "xyz": [0.28, -0.22, 0.20],
                 "approach_z": 0.40,
                 "bbox_norm": [0.16, 0.22, 0.14, 0.16],
                 "dimensions_mm": [45, 45, 45],
@@ -206,10 +209,13 @@ class ForosBridge:
             {
                 "id": "obj_gear_beta",
                 "label": "Steel Spur Gear B",
-                "aliases": ["spur gear", "steel gear", "gear b", "gear", "blue cylinder", "cylinder", "shaft"],
+                "aliases": [
+                    "spur gear", "steel gear", "gear b", "gear", "blue cylinder",
+                    "cylinder", "shaft", "engrenage b", "engrenage", "pignon",
+                ],
                 "category": "Transmission Component",
                 "confidence": 0.987,
-                "xyz": [0.12, -0.32, 0.20],
+                "xyz": [0.32, 0.05, 0.18],
                 "approach_z": 0.40,
                 "bbox_norm": [0.43, 0.18, 0.13, 0.15],
                 "dimensions_mm": [60, 60, 28],
@@ -218,10 +224,13 @@ class ForosBridge:
             {
                 "id": "obj_sensor_gamma",
                 "label": "PCB Sensor Module C",
-                "aliases": ["sensor module", "pcb", "module c", "electronic module", "sensor"],
+                "aliases": [
+                    "sensor module", "pcb", "module c", "electronic module",
+                    "sensor", "green sensor", "capteur c", "capteur",
+                ],
                 "category": "Electronics Subassembly",
                 "confidence": 0.979,
-                "xyz": [-0.08, -0.32, 0.22],
+                "xyz": [0.18, -0.32, 0.22],
                 "approach_z": 0.42,
                 "bbox_norm": [0.22, 0.56, 0.15, 0.14],
                 "dimensions_mm": [52, 38, 18],
@@ -230,10 +239,13 @@ class ForosBridge:
             {
                 "id": "zone_tray_delta",
                 "label": "Inspection Tray D (Target Drop)",
-                "aliases": ["inspection tray", "tray d", "drop zone", "pallet", "assembly fixture", "target tray", "tray"],
+                "aliases": [
+                    "inspection tray", "tray d", "drop zone", "pallet", "assembly fixture",
+                    "target tray", "tray", "yellow tray", "orange tray", "plateau d", "plateau", "bac",
+                ],
                 "category": "Placement Fixture",
                 "confidence": 0.996,
-                "xyz": [-0.24, -0.26, 0.20],
+                "xyz": [-0.28, -0.22, 0.20],
                 "approach_z": 0.40,
                 "bbox_norm": [0.68, 0.28, 0.20, 0.24],
                 "dimensions_mm": [140, 110, 15],
@@ -380,32 +392,46 @@ class ForosBridge:
     def _ground_prompt_with_vision(self, text: str) -> tuple[str, list]:
         """
         Detect references to SAM 3.1 segmented workcell objects in the operator's
-        natural-language directive and ground them into explicit (x, y, z) coordinates.
+        natural-language directive in exact order of appearance and ground them into
+        explicit (x, y, z) coordinates.
         """
         lower = text.lower()
-        grounded = []
+        matched_with_pos = []
         for obj in self._workcell_objects:
-            if obj["label"].lower() in lower or any(a in lower for a in obj["aliases"]):
-                grounded.append(obj)
+            best_pos = None
+            candidates = [obj["label"].lower(), obj["label"].lower().replace(" (target drop)", "")] + obj["aliases"]
+            for cand in candidates:
+                idx = lower.find(cand)
+                if idx != -1 and (best_pos is None or idx < best_pos):
+                    best_pos = idx
+            if best_pos is not None:
+                matched_with_pos.append((best_pos, obj))
+
+        matched_with_pos.sort(key=lambda item: item[0])
+        grounded = [item[1] for item in matched_with_pos]
 
         has_explicit_coords = bool(re.search(r'\b[xyz]\s*[=:]\s*-?\d', text, re.IGNORECASE))
+
+        # Generic pick-and-place without specific object names or coordinates -> default to Block A -> Tray D
+        if not grounded and not has_explicit_coords:
+            if any(k in lower for k in ("pick and place", "pick & place", "pick up", "grab", "prends", "pose")):
+                grounded = [self._workcell_objects[0], self._workcell_objects[3]]
+
         if has_explicit_coords or not grounded:
             return text, grounded
 
         if len(grounded) >= 2:
-            src, dst = grounded[0], grounded[1]
-            sx, sy, sz = src["xyz"]
-            dx, dy, dz = dst["xyz"]
-            grounded_prompt = (
-                f"{text} [SAM-3.1 Grounded Coordinates: source {src['label']} at x={sx} y={sy} z={sz}, "
-                f"destination {dst['label']} at x={dx} y={dy} z={dz}, safe clearance z={src['approach_z']}]"
+            seq_desc = ", ".join(
+                f"step {idx+1} target {o['label']} at x={o['xyz'][0]} y={o['xyz'][1]} z={o['xyz'][2]} (clearance z={o['approach_z']})"
+                for idx, o in enumerate(grounded)
             )
+            grounded_prompt = f"{text} [SAM-3.1 Grounded Coordinates in sequence: {seq_desc}]"
             return grounded_prompt, grounded
         else:
             target = grounded[0]
             tx, ty, tz = target["xyz"]
-            if any(k in lower for k in ("pick", "grab", "grasp", "take", "lift")):
-                dx, dy, dz = -0.24, -0.26, 0.20
+            if any(k in lower for k in ("pick", "grab", "grasp", "take", "lift", "transfer", "move", "prends", "deplace")):
+                dx, dy, dz = -0.28, -0.22, 0.20
                 grounded_prompt = (
                     f"{text} [SAM-3.1 Grounded Coordinates: pick {target['label']} at x={tx} y={ty} z={tz}, "
                     f"place on Inspection Tray D at x={dx} y={dy} z={dz}, safe clearance z=0.40]"
@@ -422,16 +448,33 @@ class ForosBridge:
         """
         Send recorded operator voice audio to Meta's muse-voice-transcribe-1.0
         endpoint (POST https://api.meta.ai/v1/asr/transcribe).
+        Automatically converts browser WebM/Opus streams to 16kHz 16-bit mono WAV.
         """
         if not self.muse_api_key:
             return {"success": False, "error": "MODEL_API_KEY is not configured"}
 
         t0 = time.time()
+
+        # Convert WebM/Opus or non-RIFF audio to 16kHz mono WAV so Meta ASR accepts it reliably
+        if not audio_bytes.startswith(b"RIFF"):
+            try:
+                import subprocess
+                proc = subprocess.run(
+                    ["ffmpeg", "-y", "-i", "pipe:0", "-ar", "16000", "-ac", "1", "-f", "wav", "pipe:1"],
+                    input=audio_bytes,
+                    capture_output=True,
+                    timeout=10.0,
+                )
+                if proc.returncode == 0 and proc.stdout.startswith(b"RIFF"):
+                    audio_bytes = proc.stdout
+                    mime_type = "audio/wav"
+            except Exception as conv_err:
+                print(f"[voice] ffmpeg WAV conversion warning: {conv_err}")
+
         boundary = f"----ForosMetaBoundary{int(time.time() * 1000)}"
-        encoding = "WAV" if "wav" in mime_type.lower() else "WEBM"
         req_json = json.dumps({
             "model": self.voice_model,
-            "audioEncoding": encoding,
+            "audioEncoding": "WAV",
             "mode": "PUSH_TO_TALK",
         })
 
@@ -442,11 +485,10 @@ class ForosBridge:
         body_parts.append(b"Content-Type: application/json\r\n\r\n")
         body_parts.append(req_json.encode("utf-8") + b"\r\n")
 
-        # Part 2: audio binary
-        ext = "wav" if encoding == "WAV" else "webm"
+        # Part 2: audio binary (WAV)
         body_parts.append(f"--{boundary}\r\n".encode("utf-8"))
-        body_parts.append(f'Content-Disposition: form-data; name="audio"; filename="command.{ext}"\r\n'.encode("utf-8"))
-        body_parts.append(f"Content-Type: {mime_type}\r\n\r\n".encode("utf-8"))
+        body_parts.append(b'Content-Disposition: form-data; name="audio"; filename="command.wav"\r\n')
+        body_parts.append(b"Content-Type: audio/wav\r\n\r\n")
         body_parts.append(audio_bytes + b"\r\n")
         body_parts.append(f"--{boundary}--\r\n".encode("utf-8"))
 
@@ -707,7 +749,7 @@ class ForosBridge:
                 dx, dy, dz = grounded_objects[1]["xyz"]
             else:
                 sx, sy, sz = grounded_objects[0]["xyz"]
-                dx, dy, dz = (-0.24, -0.26, 0.20)
+                dx, dy, dz = (-0.28, -0.22, 0.20)
             z_clear = 0.40
             return [
                 {"op": "home"},
@@ -751,8 +793,125 @@ class ForosBridge:
         ]
 
     @staticmethod
+    def _validate_industrial_directive(text: str, grounded_objects: list) -> Optional[str]:
+        """
+        ISO-10218 Pre-Inference Gate:
+        Reject conversational chitchat, non-operational questions, or unrelated text
+        so the robot never executes a hallucinated trajectory on non-robotic input.
+        """
+        clean = text.strip()
+        if not clean:
+            return "ISO-10218 SAFETY GATE: Empty directive rejected."
+        lower = clean.lower()
+
+        if grounded_objects:
+            return None
+        if re.search(r'\b[xyz]\s*[=:]\s*-?\d', lower):
+            return None
+
+        robot_keywords = (
+            "move", "go", "pick", "place", "put", "take", "grab", "grasp", "lift",
+            "drop", "transfer", "home", "return", "reset", "stop", "halt", "wait",
+            "pause", "sleep", "speed", "velocity", "vel", "gripper", "grip", "open",
+            "close", "repeat", "loop", "patrol", "scan", "inspect", "weld", "assemble",
+            "stack", "sort", "push", "pull", "reach", "lower", "raise", "up", "down",
+            "left", "right", "forward", "back", "collision", "safety", "obstacle",
+            "feedback", "tool", "arm", "robot", "tcp", "joint", "pose", "waypoint",
+            "circle", "square", "line", "trajectory", "deplace", "bouge", "va",
+            "prends", "pose", "ouvre", "ferme", "arrete", "attend", "vitesse",
+            "retour", "origine", "pince", "objet", "piece", "plateau", "bloc",
+        )
+        words = re.findall(r'[a-zA-Zà-ÿ0-9_]+', lower)
+        if any(w in robot_keywords for w in words) or any(k in lower for k in ("pick and place", "go to", "move to")):
+            return None
+
+        return (
+            f"ISO-10218 SAFETY GATE: Rejected non-operational directive ({clean!r}). "
+            "No robot motion generated. Specify a valid motion, actuator, or workcell task."
+        )
+
+    @classmethod
+    def _enforce_iso10218_envelope(cls, ops: list, prompt: str) -> tuple[list, list]:
+        """
+        Strictly enforce UR5e ISO-10218 kinematic envelope on all JSON ops:
+          - z in [0.15 m, 0.75 m] (table collision floor & upper height limit)
+          - r_xy = sqrt(x^2 + y^2) >= 0.22 m (central base column singularity guard)
+          - r = sqrt(x^2 + y^2 + z^2) <= 0.78 m (spherical reach envelope)
+          - speed.velocity in [0.05, 1.0] m/s
+        Returns (sanitized_ops, clamp_notes).
+        """
+        sanitized = copy.deepcopy(ops)
+        notes = []
+
+        # Detect if prompt explicitly requested out-of-envelope coordinates
+        for axis, val_str in re.findall(r'\b([xyz])\s*[=:]\s*(-?\d+\.?\d*)', prompt, re.IGNORECASE):
+            ax = axis.lower()
+            v = float(val_str)
+            if ax == "z" and v < 0.15:
+                notes.append(f"Requested z={v}m violated table collision floor (z_min=0.15m); clamped to z=0.15m")
+            elif ax == "z" and v > 0.75:
+                notes.append(f"Requested z={v}m exceeded vertical envelope (z_max=0.75m); clamped to z=0.75m")
+            elif ax in ("x", "y") and abs(v) > 0.78:
+                notes.append(f"Requested {ax}={v}m exceeded UR5e reach envelope (r_max=0.78m); clamped to safe boundary")
+
+        def _sanitize_list(op_list: list):
+            for op in op_list:
+                if not isinstance(op, dict):
+                    continue
+                t = op.get("op")
+                if t == "move":
+                    ox = float(op.get("x", 0.0))
+                    oy = float(op.get("y", 0.0))
+                    oz = float(op.get("z", 0.30))
+                    x, y, z = ox, oy, oz
+
+                    # If x and y are near zero (e.g. prompt only gave z=...), place at safe front table center
+                    if abs(x) < 0.04 and abs(y) < 0.04:
+                        x, y = 0.0, -0.30
+
+                    # 1. Z floor & ceiling clamp
+                    z = max(0.15, min(0.75, z))
+
+                    # 2. Inner base-column singularity cylinder guard (r_xy >= 0.22m)
+                    r_xy = math.sqrt(x * x + y * y)
+                    if r_xy < 0.22:
+                        if r_xy < 1e-4:
+                            x, y = 0.0, -0.26
+                        else:
+                            scale_xy = 0.22 / r_xy
+                            x = x * scale_xy
+                            y = y * scale_xy
+
+                    # 3. Outer spherical reach envelope clamp (r <= 0.78m)
+                    r = math.sqrt(x * x + y * y + z * z)
+                    if r > 0.78:
+                        scale = 0.78 / r
+                        x = x * scale
+                        y = y * scale
+                        z = max(0.15, z * scale)
+
+                    x, y, z = round(x, 3), round(y, 3), round(z, 3)
+                    if (abs(x - ox) > 0.01 or abs(y - oy) > 0.01 or abs(z - oz) > 0.01):
+                        notes.append(f"Clamped waypoint ({ox:.2f}, {oy:.2f}, {oz:.2f}) -> ({x:.2f}, {y:.2f}, {z:.2f})m")
+                    op["x"], op["y"], op["z"] = x, y, z
+
+                elif t == "speed":
+                    v = float(op.get("velocity", 0.25))
+                    op["velocity"] = round(max(0.05, min(1.0, v)), 3)
+
+                elif t == "repeat" and isinstance(op.get("body"), list):
+                    op["times"] = max(1, min(20, int(op.get("times", 1))))
+                    _sanitize_list(op["body"])
+
+                elif t == "safety" and isinstance(op.get("then"), list):
+                    _sanitize_list(op["then"])
+
+        _sanitize_list(sanitized)
+        return sanitized, notes
+
+    @staticmethod
     def _correct_ops_from_prompt(ops: list, prompt: str) -> list:
-        """Verify and clamp coordinates against prompt specifications."""
+        """Verify coordinates against in-envelope prompt specifications."""
         coord_pattern = re.compile(r'\b([xyz])\s*[=:]\s*(-?\d+\.?\d*)', re.IGNORECASE)
         coord_hits = coord_pattern.findall(prompt)
 
@@ -762,7 +921,12 @@ class ForosBridge:
             axes = [h[0].lower() for h in coord_hits[i:i+3]]
             if set(axes) == {'x', 'y', 'z'}:
                 triplet = {h[0].lower(): float(h[1]) for h in coord_hits[i:i+3]}
-                move_targets.append(triplet)
+                # Only use prompt triplet directly if it lies within the valid UR5e kinematic envelope
+                tx, ty, tz = triplet['x'], triplet['y'], triplet['z']
+                r = math.sqrt(tx*tx + ty*ty + tz*tz)
+                r_xy = math.sqrt(tx*tx + ty*ty)
+                if 0.15 <= tz <= 0.75 and 0.22 <= r_xy and r <= 0.78:
+                    move_targets.append(triplet)
                 i += 3
             else:
                 i += 1
@@ -784,7 +948,7 @@ class ForosBridge:
         for op in corrected:
             t = op.get("op")
             if t == "speed" and prompt_velocity is not None and not speed_corrected:
-                op["velocity"] = prompt_velocity
+                op["velocity"] = max(0.05, min(1.0, prompt_velocity))
                 speed_corrected = True
             elif t == "move" and move_target_idx < len(move_targets):
                 target = move_targets[move_target_idx]
@@ -794,12 +958,7 @@ class ForosBridge:
                     + (op.get("z", 0.0) - target.get("z", 0.0)) ** 2
                 )
                 z_diff = abs(op.get("z", 0.0) - target.get("z", 0.0))
-                out_of_envelope = (
-                    abs(op.get("x", 0.0)) > 0.85
-                    or abs(op.get("y", 0.0)) > 0.85
-                    or op.get("z", 0.0) > 0.85
-                )
-                if (dist < 0.30 and z_diff < 0.05) or out_of_envelope:
+                if dist < 0.30 and z_diff < 0.05:
                     for axis in ("x", "y", "z"):
                         if axis in target:
                             op[axis] = target[axis]
@@ -810,38 +969,65 @@ class ForosBridge:
     def infer_with_reasoning(self, text: str) -> dict:
         """
         Primary inference pipeline for the Meta Global AI Developer Hackathon:
-          1. Grounds object names using SAM 3.1 workcell calibration if present.
-          2. Calls Meta Muse-Spark-1.3 API (https://api.meta.ai/v1/chat/completions).
-          3. Validates coordinates & ISO-10218 safety constraints.
+          1. Validates that the directive is a genuine industrial robot command (ISO-10218 gate).
+          2. Grounds object names in sequence using SAM 3.1 workcell calibration.
+          3. Calls Meta Muse-Spark-1.3 API (https://api.meta.ai/v1/chat/completions).
+          4. Enforces strict ISO-10218 workspace envelope & singularity constraints on all JSON ops.
         """
         grounded_prompt, grounded_objects = self._ground_prompt_with_vision(text)
+
+        refusal = self._validate_industrial_directive(text, grounded_objects)
+        if refusal:
+            return {
+                "ops": None,
+                "raw": "",
+                "error": refusal,
+                "reasoning_steps": [],
+                "grounded_objects": [],
+                "engine_mode": "iso10218_safety_gate",
+                "engine_label": self.active_engine_name,
+            }
 
         # Primary Path: Live Meta Muse-Spark-1.3 API call
         muse_res = self._muse_infer(grounded_prompt, grounded_objects)
         if muse_res is not None:
             ops = self._correct_ops_from_prompt(muse_res["ops"], grounded_prompt)
+            ops, clamp_notes = self._enforce_iso10218_envelope(ops, text)
             reasoning_steps = muse_res.get("reasoning_steps") or self._build_spatial_reasoning(
                 text, ops, grounded_objects, self.active_engine_name
             )
+            if clamp_notes:
+                for step in reasoning_steps:
+                    if "SAFETY" in step.get("phase", "").upper():
+                        step["detail"] = f"[ISO-10218 CLAMP ACTIVE: {'; '.join(clamp_notes[:2])}] " + step.get("detail", "")
+                        break
             return {
                 "ops": ops,
                 "raw": json.dumps(ops),
                 "reasoning_steps": reasoning_steps,
                 "grounded_objects": grounded_objects,
+                "safety_notes": clamp_notes,
                 "engine_mode": "muse_api_live",
                 "engine_label": self.active_engine_name,
             }
 
         # Fallback Path: Deterministic Spatial Grounding Planner
         spatial_ops = self._synthesize_spatial_plan(text, grounded_objects)
+        spatial_ops, clamp_notes = self._enforce_iso10218_envelope(spatial_ops, text)
         reasoning_steps = self._build_spatial_reasoning(
             text, spatial_ops, grounded_objects, self.active_engine_name
         )
+        if clamp_notes:
+            for step in reasoning_steps:
+                if "SAFETY" in step.get("phase", "").upper():
+                    step["detail"] = f"[ISO-10218 CLAMP ACTIVE: {'; '.join(clamp_notes[:2])}] " + step.get("detail", "")
+                    break
         return {
             "ops": spatial_ops,
             "raw": json.dumps(spatial_ops),
             "reasoning_steps": reasoning_steps,
             "grounded_objects": grounded_objects,
+            "safety_notes": clamp_notes,
             "engine_mode": "muse_spatial_fallback",
             "engine_label": self.active_engine_name,
         }
