@@ -309,9 +309,11 @@ class WebServerHandler(BaseHTTPRequestHandler):
                 raw_json = infer_res.get("raw", "")
 
                 if ops is None:
+                    err_msg = infer_res.get("error") or f"Model generated invalid JSON output: {raw_json}"
                     self.send_json(422, {
                         "success": False,
-                        "error": f"Model generated invalid JSON output: {raw_json}"
+                        "error": err_msg,
+                        "engine_mode": infer_res.get("engine_mode", "iso10218_safety_gate"),
                     })
                     return
 

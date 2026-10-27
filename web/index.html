@@ -2390,7 +2390,7 @@
         function selectVisionObject(objId) {
             const obj = samObjectsCache.find(o => o.id === objId);
             if (!obj) return;
-            const tray = samObjectsCache.find(o => o.id === 'zone_tray_delta') || { xyz: [-0.24, -0.26, 0.20], label: 'Inspection Tray D' };
+            const tray = samObjectsCache.find(o => o.id === 'zone_tray_delta') || { xyz: [-0.28, -0.22, 0.20], label: 'Inspection Tray D' };
             const [sx, sy, sz] = obj.xyz;
             const [dx, dy, dz] = tray.xyz;
 
@@ -2671,6 +2671,24 @@
                     
                     switchTab(currentTab);
                 } else {
+                    generatedOps = null;
+                    generatedCode = '';
+                    document.getElementById('code-json').innerText = `// ${data.error || 'Directive rejected by ISO-10218 Safety Gate.'}`;
+                    document.getElementById('code-robot').innerText = `// Execution blocked: ${data.error || 'Invalid directive.'}`;
+                    const banner = document.getElementById('engine-mode-banner');
+                    const dot = document.getElementById('engine-mode-dot');
+                    const lbl = document.getElementById('engine-mode-label');
+                    const meta = document.getElementById('engine-mode-meta');
+                    const txt = document.getElementById('engine-mode-text');
+                    if (banner && lbl && meta && dot && txt) {
+                        banner.style.background = 'rgba(239, 68, 68, 0.12)';
+                        banner.style.borderColor = 'rgba(239, 68, 68, 0.45)';
+                        txt.style.color = 'var(--accent-red)';
+                        dot.style.background = 'var(--accent-red)';
+                        dot.style.boxShadow = '0 0 8px var(--accent-red)';
+                        lbl.innerText = 'ISO-10218 SAFETY GATE: DIRECTIVE REJECTED';
+                        meta.innerText = 'BLOCKED';
+                    }
                     log('logInferenceFailed', 'error', data.error);
                 }
             } catch (err) {
