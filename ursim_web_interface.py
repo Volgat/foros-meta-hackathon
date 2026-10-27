@@ -497,7 +497,7 @@ class WebServerHandler(BaseHTTPRequestHandler):
                     if not bridge:
                         self.send_json(503, {"success": False, "error": "Robot bridge disconnected"})
                         return
-                    r = bridge.send_urscript_direct("movej([0.0,-1.5708,1.5708,-1.5708,-1.5708,0.0], a=1.4, v=0.3)")
+                    r = bridge.send_urscript_direct("movel(p[0.0,-0.30,0.42,0,3.14159,0], a=1.2, v=0.25)")
                     sent = r.sent
                 elif fmt in ('krl', 'rapid', 'fanuc', 'drl'):
                     home_codes = {

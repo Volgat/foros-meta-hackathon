@@ -89,6 +89,29 @@ class URDashboard:
     def get_robot_mode(self) -> str:
         return self.send("robotmode")
 
+    def ensure_ready(self):
+        """Ensure URSim is out of PROTECTIVE_STOP / FAULT and in RUNNING mode before script execution."""
+        if not self._sock:
+            self.connect()
+        if not self._sock:
+            return
+        sm = self.send("safetymode")
+        if "PROTECTIVE_STOP" in sm or "FAULT" in sm or "VIOLATION" in sm:
+            print(f"[dashboard] Auto-recovering safety state: {sm}")
+            self.send("unlock protective stop")
+            self.send("close safety popup")
+            self.send("close popup")
+            time.sleep(0.8)
+            self.send("unlock protective stop")
+            self.send("close safety popup")
+        rm = self.send("robotmode")
+        if "RUNNING" not in rm:
+            print(f"[dashboard] Auto-powering robot from state: {rm}")
+            self.send("power on")
+            time.sleep(2.5)
+            self.send("brake release")
+            time.sleep(1.5)
+
     def stop_program(self):
         return self.send("stop")
 
@@ -162,7 +185,7 @@ class ForosBridge:
         self.sam_model     = os.environ.get("SAM_MODEL", "sam-3.1")
         self.voice_model   = os.environ.get("VOICE_MODEL", "muse-voice-transcribe-1.0")
 
-        # Calibrated SAM 3.1 overhead camera workcell objects (UR5e base frame in meters)
+        # Calibrated SAM 3.1 overhead camera workcell objects (UR5e front worktable hemisphere, singularity-free)
         self._workcell_objects = [
             {
                 "id": "obj_block_alpha",
@@ -170,7 +193,7 @@ class ForosBridge:
                 "aliases": ["aluminum block", "block a", "red block", "metal block", "workpiece a", "cube"],
                 "category": "Machined Billet",
                 "confidence": 0.992,
-                "xyz": [0.28, -0.22, 0.20],
+                "xyz": [0.26, -0.26, 0.20],
                 "approach_z": 0.40,
                 "bbox_norm": [0.16, 0.22, 0.14, 0.16],
                 "dimensions_mm": [45, 45, 45],
@@ -182,7 +205,7 @@ class ForosBridge:
                 "aliases": ["spur gear", "steel gear", "gear b", "gear", "blue cylinder", "cylinder", "shaft"],
                 "category": "Transmission Component",
                 "confidence": 0.987,
-                "xyz": [0.32, 0.05, 0.18],
+                "xyz": [0.12, -0.32, 0.20],
                 "approach_z": 0.40,
                 "bbox_norm": [0.43, 0.18, 0.13, 0.15],
                 "dimensions_mm": [60, 60, 28],
@@ -194,7 +217,7 @@ class ForosBridge:
                 "aliases": ["sensor module", "pcb", "module c", "electronic module", "sensor"],
                 "category": "Electronics Subassembly",
                 "confidence": 0.979,
-                "xyz": [0.18, -0.32, 0.22],
+                "xyz": [-0.08, -0.32, 0.22],
                 "approach_z": 0.42,
                 "bbox_norm": [0.22, 0.56, 0.15, 0.14],
                 "dimensions_mm": [52, 38, 18],
@@ -206,7 +229,7 @@ class ForosBridge:
                 "aliases": ["inspection tray", "tray d", "drop zone", "pallet", "assembly fixture", "target tray", "tray"],
                 "category": "Placement Fixture",
                 "confidence": 0.996,
-                "xyz": [-0.28, -0.22, 0.20],
+                "xyz": [-0.24, -0.26, 0.20],
                 "approach_z": 0.40,
                 "bbox_norm": [0.68, 0.28, 0.20, 0.24],
                 "dimensions_mm": [140, 110, 15],
@@ -378,7 +401,7 @@ class ForosBridge:
             target = grounded[0]
             tx, ty, tz = target["xyz"]
             if any(k in lower for k in ("pick", "grab", "grasp", "take", "lift")):
-                dx, dy, dz = -0.28, -0.22, 0.20
+                dx, dy, dz = -0.24, -0.26, 0.20
                 grounded_prompt = (
                     f"{text} [SAM-3.1 Grounded Coordinates: pick {target['label']} at x={tx} y={ty} z={tz}, "
                     f"place on Inspection Tray D at x={dx} y={dy} z={dz}, safe clearance z=0.40]"
@@ -680,7 +703,7 @@ class ForosBridge:
                 dx, dy, dz = grounded_objects[1]["xyz"]
             else:
                 sx, sy, sz = grounded_objects[0]["xyz"]
-                dx, dy, dz = (-0.28, -0.22, 0.20)
+                dx, dy, dz = (-0.24, -0.26, 0.20)
             z_clear = 0.40
             return [
                 {"op": "home"},
@@ -832,6 +855,12 @@ class ForosBridge:
             print("[bridge] DRY RUN — URScript (not sent):")
             print(full_script)
             return True
+
+        if self._dashboard:
+            try:
+                self._dashboard.ensure_ready()
+            except Exception as e:
+                print(f"[bridge] Dashboard ensure_ready warning: {e}")
 
         if not self._tcp_sock:
             print("[bridge] Not connected to robot.")
