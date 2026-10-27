@@ -182,6 +182,9 @@ class WebServerHandler(BaseHTTPRequestHandler):
                 state["engine_label"] = bridge.active_engine_name
                 state["muse_api_active"] = bool(bridge.muse_api_key)
                 state["vision_model"] = f"Meta {bridge.sam_model}"
+                state["execution"] = bridge.get_execution_status()
+            else:
+                state["execution"] = {"status": "IDLE"}
             self.send_json(200, state)
         elif self.path.startswith('/api/vision/segment'):
             from urllib.parse import urlparse, parse_qs
@@ -404,6 +407,8 @@ class WebServerHandler(BaseHTTPRequestHandler):
                         self.send_json(503, {"success": False, "error": "Robot bridge disconnected"})
                         return
                     sent = bridge.send_urscript(code)
+                    if sent:
+                        bridge.start_execution_tracking(code)
                 elif fmt in ('krl', 'rapid', 'fanuc', 'drl'):
                     tcp_ports = {'krl': 7000, 'rapid': 7001, 'fanuc': 7002, 'drl': 7003}
                     port = tcp_ports[fmt]

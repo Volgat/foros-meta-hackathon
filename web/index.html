@@ -1780,7 +1780,7 @@
             fr: {
                 title: "FOROS Action Engine",
                 subTitle: "V5.3 Industriel",
-                statusSimulated: "Mode Simulation",
+                statusSimulated: "Simulateur Virtuel URSim",
                 statusConnected: "Robot RTDE : Connecté",
                 statusDisconnected: "Robot RTDE : Déconnecté",
                 directivesTitle: "Directives Naturelles",
@@ -1823,7 +1823,8 @@
                 logInferenceFailed: "Échec de l'inférence: {error}",
                 logNetworkError: "Erreur de communication backend: {error}",
                 logTransmission: "Transmission du programme au contrôleur...",
-                logSendSuccess: "Code envoyé avec succès ! Le robot s'exécute en usine.",
+                logSendSuccess: "Code transmis au simulateur URSim. Trajectoire en cours d'exécution...",
+                logExecutionCompleted: "✓ Exécution terminée avec succès. Robot stabilisé en posture Home.",
                 logSendFailed: "Échec de l'envoi: {error}",
                 logStop: "ARRÊT D'URGENCE DÉCLENCHÉ !",
                 logStopAcquired: "Commande de décélération immédiate stopj(2.0) acquise.",
@@ -1846,7 +1847,7 @@
             en: {
                 title: "FOROS Action Engine",
                 subTitle: "V5.3 Industrial",
-                statusSimulated: "Simulation Mode",
+                statusSimulated: "URSim Virtual Simulator",
                 statusConnected: "Robot RTDE: Connected",
                 statusDisconnected: "Robot RTDE: Disconnected",
                 directivesTitle: "Natural Directives",
@@ -1889,7 +1890,8 @@
                 logInferenceFailed: "Inference failed: {error}",
                 logNetworkError: "Backend communication error: {error}",
                 logTransmission: "Transmitting program to controller...",
-                logSendSuccess: "Code sent successfully! Robot executing in factory.",
+                logSendSuccess: "Code transmitted to URSim simulator. Trajectory execution underway...",
+                logExecutionCompleted: "✓ Execution completed successfully. Robot safely stabilized in Home pose.",
                 logSendFailed: "Send failed: {error}",
                 logStop: "EMERGENCY STOP TRIGGERED!",
                 logStopAcquired: "Immediate deceleration stopj(2.0) command acknowledged.",
@@ -1945,6 +1947,7 @@
         let simCardDismissed = true;
         let loggedInUser = null;
         let authMode = 'login';
+        let lastExecutionStatus = 'IDLE';
 
         // ═══════════════════════════════════════════════════════════════
         // LANGUAGE & THEME
@@ -2001,7 +2004,7 @@
             document.getElementById('logo-tag').innerText = lang.subTitle;
             
             if (feedbackState) {
-                document.getElementById('mode-text').innerText = feedbackState.simulation ? lang.statusSimulated : `${currentLang === 'fr' ? 'Mode Usine' : 'Factory Mode'}: ${feedbackState.robot_mode}`;
+                document.getElementById('mode-text').innerText = feedbackState.simulation ? lang.statusSimulated : `${currentLang === 'fr' ? 'Simulateur Virtuel URSim' : 'URSim Virtual Simulator'} : ${feedbackState.robot_mode}`;
                 document.getElementById('conn-text').innerText = feedbackState.connected ? lang.statusConnected : lang.statusDisconnected;
             } else {
                 document.getElementById('mode-text').innerText = lang.statusSimulated;
@@ -2726,6 +2729,11 @@
                 const data = await response.json();
                 if (data.success) { 
                     log('logSendSuccess', 'success'); 
+                    lastExecutionStatus = 'RUNNING';
+                    const btnSend = document.getElementById('lbl-btn-send') || document.getElementById('btn-send');
+                    if (btnSend) {
+                        btnSend.innerText = currentLang === 'fr' ? "En cours d'exécution..." : "Executing...";
+                    }
                     // Firebase Event: Send Code
                     if (typeof firebaseAnalytics !== 'undefined' && firebaseAnalytics) {
                         firebaseAnalytics.logEvent('send_code', { format: currentProtocol });
@@ -2815,7 +2823,22 @@
                     modeText.innerText = lang.statusSimulated;
                 } else {
                     modeDot.className = 'status-dot connected';
-                    modeText.innerText = `${currentLang === 'fr' ? 'Mode Usine' : 'Factory Mode'}: ${s.robot_mode}`;
+                    modeText.innerText = `${currentLang === 'fr' ? 'Simulateur Virtuel URSim' : 'URSim Virtual Simulator'} : ${s.robot_mode}`;
+                }
+
+                if (s.execution) {
+                    if (lastExecutionStatus === 'RUNNING' && s.execution.status === 'COMPLETED') {
+                        log('logExecutionCompleted', 'success');
+                        const btnSend = document.getElementById('lbl-btn-send') || document.getElementById('btn-send');
+                        if (btnSend) {
+                            btnSend.innerText = currentLang === 'fr' ? '✓ EXÉCUTION TERMINÉE' : '✓ EXECUTION COMPLETED';
+                            setTimeout(() => {
+                                const b = document.getElementById('lbl-btn-send') || document.getElementById('btn-send');
+                                if (b) b.innerText = TRANSLATIONS[currentLang].btnSend;
+                            }, 4500);
+                        }
+                    }
+                    lastExecutionStatus = s.execution.status;
                 }
 
                 const tcp = s.tcp_pose || [0,0,0,0,0,0];

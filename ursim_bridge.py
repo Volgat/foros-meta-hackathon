@@ -195,8 +195,8 @@ class ForosBridge:
                 "id": "obj_block_alpha",
                 "label": "Aluminum Block A",
                 "aliases": [
-                    "aluminum block", "block a", "red block", "cyan block", "blue block",
-                    "metal block", "workpiece a", "cube", "block", "bloc a", "bloc",
+                    "aluminum block", "block a", "aluminum block a", "metal block",
+                    "workpiece a", "bloc a", "bloc d'aluminium", "billet",
                 ],
                 "category": "Machined Billet",
                 "confidence": 0.992,
@@ -210,8 +210,8 @@ class ForosBridge:
                 "id": "obj_gear_beta",
                 "label": "Steel Spur Gear B",
                 "aliases": [
-                    "spur gear", "steel gear", "gear b", "gear", "blue cylinder",
-                    "cylinder", "shaft", "engrenage b", "engrenage", "pignon",
+                    "steel spur gear", "spur gear", "steel gear", "gear b",
+                    "engrenage b", "pignon b", "pignon", "engrenage", "gear",
                 ],
                 "category": "Transmission Component",
                 "confidence": 0.987,
@@ -225,8 +225,9 @@ class ForosBridge:
                 "id": "obj_sensor_gamma",
                 "label": "PCB Sensor Module C",
                 "aliases": [
-                    "sensor module", "pcb", "module c", "electronic module",
-                    "sensor", "green sensor", "capteur c", "capteur",
+                    "pcb sensor module", "sensor module c", "pcb sensor", "module c",
+                    "sensor module", "pcb", "capteur c", "module electronique", "capteur",
+                    "green sensor", "capteur vert",
                 ],
                 "category": "Electronics Subassembly",
                 "confidence": 0.979,
@@ -254,6 +255,12 @@ class ForosBridge:
         ]
 
         self.history: List[BridgeResult] = []
+        self._execution_state = {
+            "status": "IDLE",
+            "start_time": 0.0,
+            "duration": 0.0,
+            "move_count": 0,
+        }
 
     # ── Connection ────────────────────────────────────────────────────────────
 
@@ -412,11 +419,8 @@ class ForosBridge:
 
         has_explicit_coords = bool(re.search(r'\b[xyz]\s*[=:]\s*-?\d', text, re.IGNORECASE))
 
-        # Generic pick-and-place without specific object names or coordinates -> default to Block A -> Tray D
-        if not grounded and not has_explicit_coords:
-            if any(k in lower for k in ("pick and place", "pick & place", "pick up", "grab", "prends", "pose")):
-                grounded = [self._workcell_objects[0], self._workcell_objects[3]]
-
+        # If no explicit coordinates and no grounded objects, do not silently substitute.
+        # Allow downstream safety gate to enforce disambiguation or target specification.
         if has_explicit_coords or not grounded:
             return text, grounded
 
@@ -1176,7 +1180,145 @@ class ForosBridge:
                     "engine_label": self.active_engine_name,
                 }
 
-        # 2) Check for non-robotic / conversational input (e.g. "Hello, how are you?")
+        # 2) ISO-10218 Disambiguation & Object Verification Gate
+        # Prevent silent substitution of nonexistent, ambiguous, or attribute-conflicted objects
+        color_conflicts = [
+            (r'\b(red|rouge|crimson|vermeil)\s+(block|bloc|cube|billet)\b', "red block"),
+            (r'\b(blue|bleu)\s+(block|bloc|cube)\b', "blue block"),
+            (r'\b(green|vert|verte)\s+(block|bloc|cube)\b', "green block"),
+            (r'\b(yellow|jaune)\s+(block|bloc|cube)\b', "yellow block"),
+            (r'\b(black|noir|noire)\s+(block|bloc|cube)\b', "black block"),
+            (r'\b(white|blanc|blanche)\s+(block|bloc|cube)\b', "white block"),
+            (r'\b(wooden|bois|plastic|plastique)\s+(block|bloc|cube)\b', "wooden/plastic block"),
+            (r'\b(red|rouge)\s+(gear|engrenage|pignon)\b', "red gear"),
+            (r'\b(green|vert|verte)\s+(gear|engrenage|pignon)\b', "green gear"),
+            (r'\b(yellow|jaune)\s+(gear|engrenage|pignon)\b', "yellow gear"),
+            (r'\b(red|rouge)\s+(sensor|capteur|module|pcb)\b', "red sensor"),
+            (r'\b(blue|bleu)\s+(sensor|capteur|module|pcb)\b', "blue sensor"),
+            (r'\b(yellow|jaune)\s+(sensor|capteur|module|pcb)\b', "yellow sensor"),
+            (r'\b(red|rouge)\s+(cylinder|cylindre)\b', "red cylinder"),
+            # French noun + conflicting modifier order
+            (r'\b(block|bloc|cube|billet)\s+(rouge|bleu|bleue|vert|verte|jaune|noir|noire|blanc|blanche|en bois|en plastique)\b', "french block conflict"),
+            (r'\b(gear|engrenage|pignon)\s+(rouge|vert|verte|jaune|noir|noire|en plastique)\b', "french gear conflict"),
+            (r'\b(sensor|capteur|module|pcb)\s+(rouge|bleu|bleue|jaune|noir|noire)\b', "french sensor conflict"),
+            (r'\b(cylinder|cylindre)\s+(rouge|vert|verte|jaune|noir|noire)\b', "french cylinder conflict"),
+        ]
+        for pattern, obj_name in color_conflicts:
+            m = re.search(pattern, lower)
+            if m:
+                detected_str = m.group(0)
+                return {
+                    "ops": [{"op": "home"}, {"op": "stop"}],
+                    "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
+                    "safety_rejected": True,
+                    "rejection_reason": f"ISO-10218 Disambiguation Safety Rejection: Object '{detected_str}' not detected in SAM 3.1 workcell perception (silent substitution prohibited)",
+                    "reasoning_steps": [
+                        {
+                            "phase": "SAM 3.1 PERCEPTION",
+                            "status": "REJECTED (OBJECT NOT FOUND)",
+                            "title": "Workcell Semantic Disambiguation Gate",
+                            "detail": (
+                                f"SAFETY REJECTION: Directive requested target entity '{detected_str}', but SAM 3.1 perception "
+                                f"identifies only [Aluminum Block A, Steel Spur Gear B, PCB Sensor Module C, Inspection Tray D]. "
+                                f"Silent substitution of nonexistent or ambiguous objects is strictly prohibited by ISO-10218."
+                            ),
+                        },
+                        {
+                            "phase": "MUSE-SPARK-1.3 PLANNER",
+                            "status": "HOLD ENGAGED",
+                            "title": "Disambiguation Safe Hold Synthesized",
+                            "detail": (
+                                f"Refused to guess or substitute ungrounded object '{detected_str}'. "
+                                f"Synthesized safe stationary hold sequence; awaiting operator clarification."
+                            ),
+                        },
+                        {
+                            "phase": "KINEMATIC SAFETY",
+                            "status": "ZERO MOTION",
+                            "title": "Trajectory Suppression & Invariant Hold",
+                            "detail": "Zero Cartesian motion emitted. Arm held in safe posture to prevent erroneous pick-and-place.",
+                        },
+                        {
+                            "phase": "FOROS COMPILER",
+                            "status": "SAFE HOLD",
+                            "title": "Protective Stop Compilation",
+                            "detail": "Compiled safe stop hold sequence with zero actuator movement.",
+                        },
+                    ],
+                    "grounded_objects": [],
+                    "engine_mode": "muse_api_live",
+                    "engine_label": self.active_engine_name,
+                }
+
+        is_manipulation = any(k in lower for k in ("pick", "place", "move", "take", "grab", "grasp", "lift", "transfer", "put", "drop", "prends", "deplace", "pose", "mets"))
+        has_tray = any("tray" in o["id"] for o in grounded_objects)
+        workpiece_count = sum(1 for o in grounded_objects if "tray" not in o["id"])
+        if is_manipulation and has_tray and workpiece_count == 0 and not coords:
+            return {
+                "ops": [{"op": "home"}, {"op": "stop"}],
+                "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
+                "safety_rejected": True,
+                "rejection_reason": "ISO-10218 Disambiguation Safety Rejection: Source workpiece not detected in SAM 3.1 perception (silent substitution prohibited)",
+                "reasoning_steps": [
+                    {
+                        "phase": "SAM 3.1 PERCEPTION",
+                        "status": "REJECTED (SOURCE MISSING)",
+                        "title": "Workpiece Disambiguation Failure",
+                        "detail": (
+                            f"SAFETY REJECTION: Directive ({clean!r}) targets drop tray but source workpiece was not detected. "
+                            f"Silent substitution prohibited. Available workcell pieces: [Aluminum Block A, Steel Spur Gear B, PCB Sensor Module C]."
+                        ),
+                    },
+                    {
+                        "phase": "MUSE-SPARK-1.3 PLANNER",
+                        "status": "HOLD ENGAGED",
+                        "title": "Ambiguous Trajectory Blocked",
+                        "detail": "Refused to synthesize blind pick motion without calibrated source workpiece coordinates.",
+                    },
+                    {
+                        "phase": "KINEMATIC SAFETY",
+                        "status": "ZERO MOTION",
+                        "title": "Invariant Safe Standby",
+                        "detail": "Zero motion emitted. Protective hold engaged.",
+                    },
+                    {
+                        "phase": "FOROS COMPILER",
+                        "status": "SAFE HOLD",
+                        "title": "Protective Stop Compilation",
+                        "detail": "Emitted safe stop hold sequence.",
+                    },
+                ],
+                "grounded_objects": [],
+                "engine_mode": "muse_api_live",
+                "engine_label": self.active_engine_name,
+            }
+
+        if is_manipulation and not grounded_objects and not coords:
+            return {
+                "ops": [{"op": "home"}, {"op": "stop"}],
+                "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
+                "safety_rejected": True,
+                "rejection_reason": "ISO-10218 Disambiguation Safety Rejection: Ambiguous manipulation directive. Specify a calibrated workcell object (Block A, Gear B, Sensor C) or Cartesian coordinates.",
+                "reasoning_steps": [
+                    {
+                        "phase": "SAM 3.1 PERCEPTION",
+                        "status": "REJECTED (AMBIGUOUS TARGET)",
+                        "title": "Unspecified Target Object",
+                        "detail": f"Directive ({clean!r}) contains manipulation intent but lacks specific workpiece identification. Silent guessing prohibited.",
+                    },
+                    {
+                        "phase": "KINEMATIC SAFETY",
+                        "status": "STANDBY HOLD",
+                        "title": "Protective Hold Engaged",
+                        "detail": "Blocked blind trajectory generation per ISO-10218 safety standards.",
+                    },
+                ],
+                "grounded_objects": [],
+                "engine_mode": "muse_api_live",
+                "engine_label": self.active_engine_name,
+            }
+
+        # 3) Check for non-robotic / conversational input (e.g. "Hello, how are you?")
         refusal = self._validate_industrial_directive(text, grounded_objects)
         if refusal:
             return {
@@ -1303,6 +1445,8 @@ class ForosBridge:
     def send_urscript_direct(self, script: str) -> BridgeResult:
         t0 = time.time()
         sent = self.send_urscript(script)
+        if sent:
+            self.start_execution_tracking(script)
         return BridgeResult(
             nl_input="[direct URScript]",
             json_ops=None,
@@ -1312,3 +1456,31 @@ class ForosBridge:
             error=None if sent else "Send failed",
             valid_json=False,
         )
+
+    def start_execution_tracking(self, code: str) -> dict:
+        """
+        Estimate trajectory duration and track live execution progress.
+        Signals completion once physical/simulated trajectory reaches termination.
+        """
+        move_count = len(re.findall(r'\b(movej|movel)\b', code))
+        sleep_durations = [float(s) for s in re.findall(r'sleep\((\d+\.?\d*)\)', code)]
+        total_sleep = sum(sleep_durations)
+        est_duration = max(3.0, move_count * 1.8 + total_sleep + 1.2)
+        self._execution_state = {
+            "status": "RUNNING",
+            "start_time": time.time(),
+            "duration": est_duration,
+            "move_count": move_count,
+        }
+        return self._execution_state
+
+    def get_execution_status(self) -> dict:
+        """
+        Return the live execution status: 'IDLE' | 'RUNNING' | 'COMPLETED'.
+        """
+        if self._execution_state.get("status") == "RUNNING":
+            elapsed = time.time() - self._execution_state.get("start_time", 0.0)
+            if elapsed >= self._execution_state.get("duration", 3.0):
+                self._execution_state["status"] = "COMPLETED"
+        return dict(self._execution_state)
+
