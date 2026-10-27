@@ -237,10 +237,9 @@ class ForosAdapter:
                 lines.append(f"sleep({s})")
 
             elif t == "home":
-                # Safe extended front-table posture at (0.0, -0.30, 0.42) outside base singularity
-                v = self.speed_override if self.speed_override is not None else self._current_speed
-                lines.append(f"movel(p[0.0,-0.30,0.42,0,3.14159,0], a=1.2, v={round(v, 3)})")
-                prev_xy = (0.0, -0.30)
+                # Safe extended front-table posture at (0.0, -0.32, 0.42) using joint-space IK interpolation
+                lines.append("movej(p[0.0,-0.32,0.42,0,3.14159,0], a=1.2, v=0.6)")
+                prev_xy = (0.0, -0.32)
 
             elif t == "speed":
                 # FIX 3 — update session speed; subsequent moves will use this value

@@ -64,15 +64,23 @@ class URDashboard:
             self._sock = None
 
     def send(self, cmd: str) -> str:
-        if not self._sock:
-            return ""
-        try:
-            self._sock.sendall((cmd.strip() + "\n").encode("utf-8"))
-            time.sleep(0.1)
-            resp = self._sock.recv(4096).decode("utf-8", errors="replace").strip()
-            return resp
-        except Exception as e:
-            return f"ERROR: {e}"
+        for attempt in range(2):
+            if not self._sock:
+                if not self.connect():
+                    return ""
+            try:
+                self._sock.sendall((cmd.strip() + "\n").encode("utf-8"))
+                time.sleep(0.12)
+                resp = self._sock.recv(4096).decode("utf-8", errors="replace").strip()
+                if resp:
+                    return resp
+                # Empty response means remote closed idle socket; reconnect once
+                self.disconnect()
+            except Exception as e:
+                self.disconnect()
+                if attempt == 1:
+                    return f"ERROR: {e}"
+        return ""
 
     def power_on(self):
         print("[dashboard] Powering on robot...")
@@ -91,17 +99,13 @@ class URDashboard:
 
     def ensure_ready(self):
         """Ensure URSim is out of PROTECTIVE_STOP / FAULT and in RUNNING mode before script execution."""
-        if not self._sock:
-            self.connect()
-        if not self._sock:
-            return
         sm = self.send("safetymode")
         if "PROTECTIVE_STOP" in sm or "FAULT" in sm or "VIOLATION" in sm:
             print(f"[dashboard] Auto-recovering safety state: {sm}")
             self.send("unlock protective stop")
             self.send("close safety popup")
             self.send("close popup")
-            time.sleep(0.8)
+            time.sleep(1.8)
             self.send("unlock protective stop")
             self.send("close safety popup")
         rm = self.send("robotmode")
