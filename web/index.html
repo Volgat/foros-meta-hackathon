@@ -1914,24 +1914,23 @@
         };
 
         // Firebase Configuration & Initialization
-        const firebaseConfig = {
-            apiKey: "AIzaSyC5xOa-1yg28E55yU1ARIUEOarg2sSNGAI",
-            authDomain: "foros-afc37.firebaseapp.com",
-            projectId: "foros-afc37",
-            storageBucket: "foros-afc37.firebasestorage.app",
-            messagingSenderId: "747389305608",
-            appId: "1:747389305608:web:757370c833e13506d722bd",
-            measurementId: "G-J345PMZGTV"
-        };
-
-        let firebaseApp, firebaseAnalytics;
-        try {
-            firebaseApp = firebase.initializeApp(firebaseConfig);
-            firebaseAnalytics = firebase.analytics();
-            console.log("Firebase Analytics initialized successfully");
-        } catch (e) {
-            console.warn("Failed to initialize Firebase:", e);
+        let firebaseApp = null, firebaseAnalytics = null;
+        async function initFirebase() {
+            try {
+                const res = await fetch(`${API_BASE}/api/firebase-config`);
+                if (res.ok) {
+                    const cfg = await res.json();
+                    if (cfg && cfg.apiKey) {
+                        firebaseApp = firebase.initializeApp(cfg);
+                        firebaseAnalytics = firebase.analytics();
+                        console.log("Firebase Analytics initialized successfully");
+                    }
+                }
+            } catch (e) {
+                // Non-critical telemetry - silent catch
+            }
         }
+        initFirebase();
 
         // ═══════════════════════════════════════════════════════════════
         // STATE
