@@ -193,6 +193,20 @@ class WebServerHandler(BaseHTTPRequestHandler):
                 self.send_json(503, {"success": False, "error": "Robot bridge disconnected"})
                 return
             self.send_json(200, bridge.segment_workspace(query=query))
+        elif self.path.startswith('/api/firebase-config'):
+            firebase_api_key = os.environ.get("FIREBASE_API_KEY", "").strip()
+            if not firebase_api_key:
+                self.send_json(200, {})
+                return
+            self.send_json(200, {
+                "apiKey": firebase_api_key,
+                "authDomain": "foros-afc37.firebaseapp.com",
+                "projectId": "foros-afc37",
+                "storageBucket": "foros-afc37.firebasestorage.app",
+                "messagingSenderId": "747389305608",
+                "appId": "1:747389305608:web:757370c833e13506d722bd",
+                "measurementId": "G-J345PMZGTV"
+            })
         else:
             # Fallback 404
             self.send_response(404)
