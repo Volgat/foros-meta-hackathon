@@ -381,10 +381,15 @@ class WebServerHandler(BaseHTTPRequestHandler):
         # 1b) Meta SAM 3.1 Workspace Perception Segmentation
         elif self.path == '/api/vision/segment':
             query = body.get('query', '').strip()
+            image_data_url = (body.get('image_data_url') or '').strip() or None
+            camera = body.get('camera') if isinstance(body.get('camera'), dict) else None
+            if image_data_url and not image_data_url.startswith('data:image/'):
+                self.send_json(400, {"success": False, "error": "image_data_url must be a data:image/... URL"})
+                return
             if not bridge:
                 self.send_json(503, {"success": False, "error": "Robot bridge disconnected"})
                 return
-            self.send_json(200, bridge.segment_workspace(query=query))
+            self.send_json(200, bridge.segment_workspace(query=query, image_data_url=image_data_url, camera=camera))
 
         # 1c) Meta Muse Voice Transcribe (muse-voice-transcribe-1.0)
         elif self.path == '/api/voice/transcribe':
