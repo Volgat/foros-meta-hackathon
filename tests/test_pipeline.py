@@ -206,3 +206,46 @@ def test_valid_model_plan_passes_with_model_trace(bridge, monkeypatch):
 ])
 def test_ui_example_tasks_pass_the_verifier(bridge, prompt):
     assert not bridge.infer_with_reasoning(prompt).get("safety_rejected")
+
+
+# ---------- SAM guards: bad boxes never move the workcell ----------
+def _box_at(x, y, c, cam_w=768):
+    u, v = (x + 0.6) / 1.2 * cam_w, (y + 0.6) / 1.2 * cam_w
+    return [{"x1": u - 10.5, "y1": v - 10.5, "x2": u + 9.5, "y2": v + 9.5, "w": cam_w, "h": cam_w, "c": c}]
+
+
+CAM = {"x_min": -0.6, "x_max": 0.6, "y_min": -0.6, "y_max": 0.6, "width": 768, "height": 768}
+
+
+def test_far_detection_is_rejected_and_registry_kept(bridge, monkeypatch):
+    bridge.muse_api_key = "k"
+    # "orange rectangle" reported where the aluminium block is (the swap seen in production)
+    monkeypatch.setattr(bridge, "_sam_detect", lambda p, i: _box_at(0.279, -0.219, 0.88) if p == "orange rectangle" else [])
+    res = bridge.segment_workspace(image_data_url="data:image/png;base64,AAAA", camera=CAM)
+    tray = next(o for o in res["objects"] if o["id"] == "zone_tray_delta")
+    assert tray["detected"] is False and tray["xyz"][:2] == [-0.28, -0.22]
+    assert "expected position" in tray["rejected_detection"]["reason"]
+    assert obj(bridge, "zone_tray_delta")["xyz"][:2] == [-0.28, -0.22]
+    assert any("rejected" in e for e in res["errors"])
+
+
+def test_low_confidence_detection_is_rejected(bridge, monkeypatch):
+    bridge.muse_api_key = "k"
+    monkeypatch.setattr(bridge, "_sam_detect", lambda p, i: _box_at(0.32, 0.06, 0.2) if p == "blue circle" else [])
+    res = bridge.segment_workspace(image_data_url="data:image/png;base64,AAAA", camera=CAM)
+    gear = next(o for o in res["objects"] if o["id"] == "obj_gear_beta")
+    assert gear["detected"] is False and gear["xyz"][:2] == [0.32, 0.05]
+
+
+def test_detections_do_not_accumulate_across_scans(bridge, monkeypatch):
+    bridge.muse_api_key = "k"
+    # each scan reports the gear 7 cm further: must be judged against the registry, not the last scan
+    shifts = iter([0.07, 0.14])
+    monkeypatch.setattr(bridge, "_sam_detect",
+                        lambda p, i: _box_at(0.32 + next(shifts), 0.05, 0.9) if p == "blue circle" else [])
+    bridge.segment_workspace(image_data_url="data:image/png;base64,AAAA", camera=CAM)
+    assert obj(bridge, "obj_gear_beta")["xyz"][0] == pytest.approx(0.39, abs=3e-3)
+    res = bridge.segment_workspace(image_data_url="data:image/png;base64,AAAA", camera=CAM)
+    gear = next(o for o in res["objects"] if o["id"] == "obj_gear_beta")
+    assert gear["detected"] is False
+    assert obj(bridge, "obj_gear_beta")["xyz"][:2] == [0.32, 0.05]  # back to registry, not drifting
