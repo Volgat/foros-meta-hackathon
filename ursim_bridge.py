@@ -1221,8 +1221,8 @@ class ForosBridge:
 
             if "z" in coords and cz < 0.15:
                 return {
-                    "ops": [{"op": "home"}, {"op": "stop"}],
-                    "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
+                    "ops": [{"op": "stop"}],
+                    "raw": json.dumps([{"op": "stop"}]),
                     "safety_rejected": True,
                     "rejection_reason": f"Table Collision Violation: z={cz:.3f}m < 0.150m floor",
                     "reasoning_steps": [
@@ -1261,8 +1261,8 @@ class ForosBridge:
 
             if r > 0.80 or abs(cx) > 0.80 or abs(cy) > 0.80 or cz > 0.80:
                 return {
-                    "ops": [{"op": "home"}, {"op": "stop"}],
-                    "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
+                    "ops": [{"op": "stop"}],
+                    "raw": json.dumps([{"op": "stop"}]),
                     "safety_rejected": True,
                     "rejection_reason": f"Reach Envelope Violation: r={r:.3f}m > 0.800m max reach",
                     "reasoning_steps": [
@@ -1327,8 +1327,8 @@ class ForosBridge:
             if m:
                 detected_str = m.group(0)
                 return {
-                    "ops": [{"op": "home"}, {"op": "stop"}],
-                    "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
+                    "ops": [{"op": "stop"}],
+                    "raw": json.dumps([{"op": "stop"}]),
                     "safety_rejected": True,
                     "rejection_reason": f"Disambiguation Safety Rejection: Object '{detected_str}' not found in {self._perception_name} (silent substitution prohibited)",
                     "reasoning_steps": [
@@ -1374,8 +1374,8 @@ class ForosBridge:
         workpiece_count = sum(1 for o in grounded_objects if "tray" not in o["id"])
         if is_manipulation and has_tray and workpiece_count == 0 and not coords:
             return {
-                "ops": [{"op": "home"}, {"op": "stop"}],
-                "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
+                "ops": [{"op": "stop"}],
+                "raw": json.dumps([{"op": "stop"}]),
                 "safety_rejected": True,
                 "rejection_reason": f"Disambiguation Safety Rejection: Source workpiece not found in {self._perception_name} (silent substitution prohibited)",
                 "reasoning_steps": [
@@ -1414,8 +1414,8 @@ class ForosBridge:
 
         if is_manipulation and not grounded_objects and not coords:
             return {
-                "ops": [{"op": "home"}, {"op": "stop"}],
-                "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
+                "ops": [{"op": "stop"}],
+                "raw": json.dumps([{"op": "stop"}]),
                 "safety_rejected": True,
                 "rejection_reason": "Disambiguation Safety Rejection: Ambiguous manipulation directive. Specify a calibrated workcell object (Block A, Gear B, Sensor C) or Cartesian coordinates.",
                 "reasoning_steps": [
@@ -1466,6 +1466,74 @@ class ForosBridge:
 
         return None
 
+    # Hard workspace limits (ISO 10218-inspired, not a certified safety function)
+    Z_MIN, Z_MAX, R_MAX, R_XY_MIN, CLEARANCE_Z, OBJ_TOL = 0.15, 0.75, 0.80, 0.22, 0.35, 0.02
+
+    @classmethod
+    def _verify_ops_strict(cls, ops: list, grounded_objects: list, prompt: str) -> list:
+        """
+        Check every move of a plan WITHOUT modifying it. Returns a list of violations;
+        an empty list means the plan passes and may be compiled.
+          * floor / ceiling:   Z_MIN <= z <= Z_MAX
+          * reach:             sqrt(x^2+y^2+z^2) <= R_MAX and sqrt(x^2+y^2) >= R_XY_MIN
+          * known targets:     any move below the clearance plane (z < CLEARANCE_Z) must be
+                               over a grounded workcell object or a coordinate the operator gave.
+        """
+        anchors = [(o["xyz"][0], o["xyz"][1]) for o in grounded_objects]
+        for t in re.findall(r"x\s*[=:]\s*(-?\d+\.?\d*)\s*,?\s*y\s*[=:]\s*(-?\d+\.?\d*)", prompt, re.IGNORECASE):
+            anchors.append((float(t[0]), float(t[1])))
+        violations = []
+
+        def _walk(op_list, path):
+            for i, op in enumerate(op_list or []):
+                if not isinstance(op, dict):
+                    violations.append(f"{path}[{i}]: not an operation object")
+                    continue
+                if op.get("op") == "move":
+                    try:
+                        x, y, z = float(op["x"]), float(op["y"]), float(op["z"])
+                    except (KeyError, TypeError, ValueError):
+                        violations.append(f"{path}[{i}]: move without numeric x/y/z")
+                        continue
+                    r, rxy = math.sqrt(x * x + y * y + z * z), math.sqrt(x * x + y * y)
+                    if z < cls.Z_MIN - 1e-6:
+                        violations.append(f"{path}[{i}]: z={z:.3f} m below table floor {cls.Z_MIN} m")
+                    if z > cls.Z_MAX + 1e-6:
+                        violations.append(f"{path}[{i}]: z={z:.3f} m above {cls.Z_MAX} m")
+                    if r > cls.R_MAX + 1e-6:
+                        violations.append(f"{path}[{i}]: reach r={r:.3f} m > {cls.R_MAX} m")
+                    if rxy < cls.R_XY_MIN - 1e-6:
+                        violations.append(f"{path}[{i}]: inside base column (r_xy={rxy:.3f} m)")
+                    if z < cls.CLEARANCE_Z and not any(
+                        abs(x - ax) <= cls.OBJ_TOL and abs(y - ay) <= cls.OBJ_TOL for ax, ay in anchors
+                    ):
+                        violations.append(f"{path}[{i}]: descends at ({x:.3f}, {y:.3f}) where no known object is")
+                for key in ("body", "then"):
+                    if isinstance(op.get(key), list):
+                        _walk(op[key], f"{path}[{i}].{key}")
+
+        _walk(ops, "ops")
+        return violations
+
+    def _verifier_rejection(self, text: str, violations: list, grounded_objects: list, source: str) -> dict:
+        """Plan failed the hard checks: nothing is compiled, the robot holds."""
+        shown = violations[:4] + ([f"... and {len(violations) - 4} more"] if len(violations) > 4 else [])
+        return {
+            "ops": [{"op": "stop"}],
+            "raw": json.dumps([{"op": "stop"}]),
+            "safety_rejected": True,
+            "rejection_reason": f"Verifier rejected the {source} plan ({len(violations)} violation(s)): {violations[0]}",
+            "reasoning_steps": [{
+                "phase": "FOROS VERIFIER",
+                "title": "Plan rejected — nothing compiled, robot holds",
+                "detail": "; ".join(shown),
+            }],
+            "grounded_objects": grounded_objects,
+            "safety_notes": violations,
+            "engine_mode": "safety_rejected",
+            "engine_label": self.active_engine_name,
+        }
+
     @staticmethod
     def _sanitize_model_steps(steps) -> list:
         """Keep the model's own reasoning trace (text only, bounded)."""
@@ -1503,7 +1571,13 @@ class ForosBridge:
             model_ops = [dict(o) for o in muse_res["ops"]]
             ops = self._correct_ops_from_prompt(muse_res["ops"], grounded_prompt)
             ops = self._lock_grounded_object_coordinates(ops, grounded_objects, text)
-            ops, clamp_notes = self._enforce_iso10218_envelope(ops, text)
+            violations = self._verify_ops_strict(ops, grounded_objects, text)
+            if violations:
+                rej = self._verifier_rejection(text, violations, grounded_objects, f"{self.muse_model}")
+                rej["model_ops"] = model_ops
+                rej["reasoning_steps"] = self._sanitize_model_steps(muse_res.get("reasoning_steps")) + rej["reasoning_steps"]
+                return rej
+            clamp_notes = []
             verifier = self._build_spatial_reasoning(
                 text, ops, grounded_objects, self.active_engine_name,
                 perception_phase=self._perception_phase, planner_phase="FOROS VERIFIER",
@@ -1513,7 +1587,7 @@ class ForosBridge:
                 verifier.insert(0, {
                     "phase": "FOROS VERIFIER",
                     "title": f"{corrected} model op(s) corrected before compilation",
-                    "detail": "Waypoints were locked to grounded object coordinates and/or clamped to the workspace envelope.",
+                    "detail": "Waypoints were snapped to the grounded object coordinates before verification.",
                 })
             return {
                 "ops": ops,
@@ -1529,6 +1603,9 @@ class ForosBridge:
         spatial_ops = self._synthesize_spatial_plan(text, grounded_objects)
         spatial_ops = self._lock_grounded_object_coordinates(spatial_ops, grounded_objects, text)
         spatial_ops, clamp_notes = self._enforce_iso10218_envelope(spatial_ops, text)
+        violations = self._verify_ops_strict(spatial_ops, grounded_objects, text)
+        if violations:
+            return self._verifier_rejection(text, violations, grounded_objects, "offline")
         reasoning_steps = self._build_spatial_reasoning(
             text, spatial_ops, grounded_objects,
             "Offline deterministic planner + FOROS compiler",

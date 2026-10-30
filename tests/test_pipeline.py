@@ -156,3 +156,53 @@ def test_all_compiler_targets(bridge, fmt):
     ops = bridge.infer_with_reasoning("Pick up the steel spur gear and place it on the inspection tray")["ops"]
     code = ForosAdapter(format=fmt, speed_override=None).convert(ops)
     assert isinstance(code, str) and len(code.strip()) > 20
+
+
+# ---------- "holds the robot still": refusals emit no motion at all ----------
+@pytest.mark.parametrize("prompt", ["Move the red block to the tray", "Move to x=2.0 y=0.5 z=0.3",
+                                    "Move to x=0.3 y=0.1 z=0.05", "Hello, how are you ?"])
+def test_refusals_hold_still(bridge, prompt):
+    res = bridge.infer_with_reasoning(prompt)
+    assert res.get("safety_rejected")
+    assert res["ops"] == [{"op": "stop"}]  # no 'home', no move
+
+
+# ---------- "only what passes gets compiled": model plans are verified, not clamped ----------
+def _fake_model(bridge, monkeypatch, ops):
+    bridge.muse_api_key = "test-key"
+    monkeypatch.setattr(bridge, "_muse_infer", lambda t, g: {
+        "reasoning_steps": [{"phase": "PLANNER", "title": "model trace", "detail": "d"}], "ops": ops})
+
+
+def test_model_plan_descending_on_unknown_spot_is_rejected(bridge, monkeypatch):
+    _fake_model(bridge, monkeypatch, [{"op": "move", "x": 0.3, "y": -0.3, "z": 0.40},
+                                      {"op": "move", "x": 0.10, "y": 0.45, "z": 0.16}])
+    res = bridge.infer_with_reasoning("Move to x=0.3 y=-0.3 z=0.25")
+    assert res.get("safety_rejected") and res["ops"] == [{"op": "stop"}]
+    assert "no known object" in res["rejection_reason"]
+    assert res["reasoning_steps"][0]["source"] == "model"  # the model's own trace is kept
+
+
+def test_model_plan_out_of_reach_is_rejected_not_clamped(bridge, monkeypatch):
+    _fake_model(bridge, monkeypatch, [{"op": "move", "x": 0.3, "y": -0.3, "z": 0.25},
+                                      {"op": "move", "x": 0.75, "y": 0.40, "z": 0.40}])
+    res = bridge.infer_with_reasoning("Move to x=0.3 y=-0.3 z=0.25")
+    assert res.get("safety_rejected") and "reach" in res["rejection_reason"]
+
+
+def test_valid_model_plan_passes_with_model_trace(bridge, monkeypatch):
+    _fake_model(bridge, monkeypatch, [{"op": "move", "x": 0.3, "y": -0.3, "z": 0.25}])
+    res = bridge.infer_with_reasoning("Move to x=0.3 y=-0.3 z=0.25")
+    assert not res.get("safety_rejected") and res["engine_mode"] == "muse_api_live"
+    assert res["reasoning_steps"][0]["phase"].startswith("MUSE-SPARK-1.3")
+
+
+@pytest.mark.parametrize("prompt", [
+    "Pick up Steel Spur Gear B and place it on Inspection Tray D",
+    "If collision detected then stop immediately, open gripper, and return home",
+    "Repeat 3 times: move to PCB Sensor Module C at x=0.18 y=-0.32 z=0.30 then wait 1.0s",
+    "Pick up Aluminum Block A, place it on Inspection Tray D, then pick up Steel Spur Gear B",
+    "Patrol at speed=0.30: move to x=0.28 y=-0.22 z=0.40, move to x=0.18 y=-0.32 z=0.40, move to x=-0.28 y=-0.22 z=0.40, then go home",
+])
+def test_ui_example_tasks_pass_the_verifier(bridge, prompt):
+    assert not bridge.infer_with_reasoning(prompt).get("safety_rejected")

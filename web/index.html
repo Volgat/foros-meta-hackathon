@@ -2682,7 +2682,14 @@
 
                 if (data.success) {
                     generatedOps = data.json_ops;
-                    generatedCode = data.robot_code;
+                    // A rejected directive is never sent: the robot holds (zero moves).
+                    generatedCode = data.safety_rejected ? '' : data.robot_code;
+                    const sendBtn = document.getElementById('btn-send');
+                    if (sendBtn) {
+                        sendBtn.disabled = !!data.safety_rejected;
+                        sendBtn.style.opacity = data.safety_rejected ? '0.45' : '';
+                        sendBtn.title = data.safety_rejected ? 'Directive rejected by the safety gate — nothing to execute' : '';
+                    }
                     document.getElementById('code-json').innerText = JSON.stringify(data.json_ops, null, 2);
                     document.getElementById('code-robot').innerText = data.robot_code;
                     if (data.reasoning_steps) {
