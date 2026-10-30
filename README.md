@@ -74,7 +74,12 @@ flowchart LR
 
 ## Deterministic Safety Verifier (ISO 10218-inspired limits) — automated tests
 
-Before any JSON operation graph is compiled into vendor robot code, [`ursim_bridge.py`](./ursim_bridge.py) enforces five deterministic invariants. They are simple workspace limits inspired by ISO 10218 — **not** a certified ISO 10218 safety function. Every scenario below is covered by [`tests/test_pipeline.py`](./tests/test_pipeline.py) (`python -m pytest -q`, 24 tests, no network needed):
+Before any JSON operation graph is compiled into vendor robot code, [`ursim_bridge.py`](./ursim_bridge.py) enforces five deterministic invariants. They are simple workspace limits inspired by ISO 10218 — **not** a certified ISO 10218 safety function. Every scenario below is covered by [`tests/test_pipeline.py`](./tests/test_pipeline.py) (`python -m pytest -q`, 36 tests, no network needed).
+
+**Refusal = hold still.** Every rejection emits a single `stop` operation (no `home`, no motion) and the cockpit disables **Send & Execute**.
+
+**Verified, not silently fixed.** Model waypoints are snapped to grounded objects (reported in the trace as *N model op(s) corrected*), then checked without modification: floor/ceiling, reach, base column, and *no descent below the clearance plane except over a known object or an operator-given coordinate*. Any violation rejects the whole plan — nothing is compiled.
+
 
 | Safety Invariant | Enforcement Mechanism | Verified Behavior |
 | :--- | :--- | :--- |
@@ -186,7 +191,7 @@ foros-meta-hackathon/
 ├── foros_adapter.py         # Deterministic multi-brand compiler (12 industrial robot protocols + workspace safety clamps)
 ├── ursim_feedback.py        # 50 Hz Real-Time Data Exchange (RTDE port 30004) telemetry engine
 ├── foros_db.py              # SQLite telemetry & audit logger
-├── tests/test_pipeline.py   # 24 deterministic tests: safety gates D1–D10, SAM parser/projection, 12 compilers
+├── tests/test_pipeline.py   # 36 deterministic tests: safety gates D1–D10, hold-still refusals, strict verifier, SAM parser/projection, 12 compilers
 ├── web/
 │   ├── index.html           # Industrial 3D/VNC control cockpit, SAM 3.1 viewport, and Muse Spatial Plan inspector
 │   ├── logo_dark.png        # FOROS brand assets
