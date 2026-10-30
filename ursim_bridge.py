@@ -189,17 +189,18 @@ class ForosBridge:
         self.sam_model     = os.environ.get("SAM_MODEL", "sam-3.1")
         self.voice_model   = os.environ.get("VOICE_MODEL", "muse-voice-transcribe-1.0")
 
-        # Calibrated SAM 3.1 overhead camera workcell objects (UR5e base frame in meters)
+        # Calibrated workcell registry (UR5e base frame, meters). In live mode SAM 3.1 re-locates
+        # each object from the overhead image (see segment_workspace); z = known part height.
         self._workcell_objects = [
             {
                 "id": "obj_block_alpha",
+                "sam_prompt": "cyan square",
                 "label": "Aluminum Block A",
                 "aliases": [
                     "aluminum block", "block a", "aluminum block a", "metal block",
                     "workpiece a", "bloc a", "bloc d'aluminium", "billet",
                 ],
                 "category": "Machined Billet",
-                "confidence": 0.992,
                 "xyz": [0.28, -0.22, 0.20],
                 "approach_z": 0.40,
                 "bbox_norm": [0.16, 0.22, 0.14, 0.16],
@@ -208,13 +209,13 @@ class ForosBridge:
             },
             {
                 "id": "obj_gear_beta",
+                "sam_prompt": "blue circle",
                 "label": "Steel Spur Gear B",
                 "aliases": [
                     "steel spur gear", "spur gear", "steel gear", "gear b",
                     "engrenage b", "pignon b", "pignon", "engrenage", "gear",
                 ],
                 "category": "Transmission Component",
-                "confidence": 0.987,
                 "xyz": [0.32, 0.05, 0.18],
                 "approach_z": 0.40,
                 "bbox_norm": [0.43, 0.18, 0.13, 0.15],
@@ -223,6 +224,7 @@ class ForosBridge:
             },
             {
                 "id": "obj_sensor_gamma",
+                "sam_prompt": "green square",
                 "label": "PCB Sensor Module C",
                 "aliases": [
                     "pcb sensor module", "sensor module c", "pcb sensor", "module c",
@@ -230,7 +232,6 @@ class ForosBridge:
                     "green sensor", "capteur vert",
                 ],
                 "category": "Electronics Subassembly",
-                "confidence": 0.979,
                 "xyz": [0.18, -0.32, 0.22],
                 "approach_z": 0.42,
                 "bbox_norm": [0.22, 0.56, 0.15, 0.14],
@@ -239,13 +240,13 @@ class ForosBridge:
             },
             {
                 "id": "zone_tray_delta",
+                "sam_prompt": "orange rectangle",
                 "label": "Inspection Tray D (Target Drop)",
                 "aliases": [
                     "inspection tray", "tray d", "drop zone", "pallet", "assembly fixture",
                     "target tray", "tray", "yellow tray", "orange tray", "plateau d", "plateau", "bac",
                 ],
                 "category": "Placement Fixture",
-                "confidence": 0.996,
                 "xyz": [-0.28, -0.22, 0.20],
                 "approach_z": 0.40,
                 "bbox_norm": [0.68, 0.28, 0.20, 0.24],
@@ -254,6 +255,7 @@ class ForosBridge:
             },
         ]
 
+        self._last_perception_live = False
         self.history: List[BridgeResult] = []
         self._execution_state = {
             "status": "IDLE",
@@ -328,71 +330,184 @@ class ForosBridge:
     @property
     def active_engine_name(self) -> str:
         if self.muse_api_key:
-            return f"Meta {self.muse_model} + {self.sam_model} + FOROS Compiler"
-        return "Meta Spatial Planner + FOROS Deterministic Compiler"
+            return f"Meta {self.muse_model} planner + FOROS verifier & compiler"
+        return "Offline deterministic planner + FOROS compiler (no Meta API key)"
+
+    @property
+    def _perception_phase(self) -> str:
+        return "SAM 3.1 PERCEPTION" if self._last_perception_live else "WORKCELL REGISTRY"
+
+    @property
+    def _perception_name(self) -> str:
+        return "SAM 3.1 perception" if self._last_perception_live else "the calibrated workcell registry"
 
     # ── 1. Meta SAM 3.1 Workspace Perception (sam-3.1) ────────────────────────
 
-    def segment_workspace(self, query: Optional[str] = None) -> dict:
+    # SAM 3.1 box record on the wire, e.g. <|box;x1=181;y1=365;x2=556;y2=486;w=1516;h=1600;c=0.96|>
+    _SAM_BOX_RE = re.compile(r"<\|box;([^|]*)\|>")
+
+    @classmethod
+    def _parse_sam_boxes(cls, text: str) -> list:
+        """Parse SAM 3.1 Responses output text into a list of pixel boxes."""
+        boxes = []
+        for m in cls._SAM_BOX_RE.finditer(text or ""):
+            fields = {}
+            for kv in m.group(1).split(";"):
+                if "=" in kv:
+                    k, v = kv.split("=", 1)
+                    try:
+                        fields[k.strip()] = float(v)
+                    except ValueError:
+                        pass
+            if all(k in fields for k in ("x1", "y1", "x2", "y2", "w", "h")):
+                boxes.append(fields)
+        return boxes
+
+    def _sam_detect(self, prompt: str, image_data_url: str, timeout: float = 25.0) -> list:
         """
-        Run Meta SAM 3.1 (sam-3.1) instance segmentation and 3D workcell
-        coordinate calibration on the overhead RGB-D camera plane.
+        One SAM 3.1 call (POST /v1/responses, model=sam-3.1) with a short noun-phrase
+        prompt and an image. Streams the response and returns the parsed boxes.
+        Raises on HTTP / network errors so the caller can report them honestly.
+        """
+        payload = json.dumps({
+            "model": self.sam_model,
+            "input": [{
+                "type": "message",
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image_url": image_data_url},
+                ],
+            }],
+            "stream": True,
+            "metadata": {"include_confidence": "true", "mask_encoding": "one_bit"},
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.muse_api_base}/responses",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+                "Authorization": f"Bearer {self.muse_api_key}",
+            },
+            method="POST",
+        )
+        text_parts = []
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            for raw in resp:
+                line = raw.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data or data == "[DONE]":
+                    continue
+                try:
+                    evt = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                if evt.get("type") == "response.output_text.delta":
+                    text_parts.append(evt.get("delta", ""))
+                elif evt.get("type") == "error":
+                    raise RuntimeError(f"SAM 3.1 stream error: {evt}")
+        return self._parse_sam_boxes("".join(text_parts))
+
+    @staticmethod
+    def _pixel_to_base(u: float, v: float, w: float, h: float, camera: dict) -> tuple:
+        """
+        Map an image pixel to the robot base frame for the top-down orthographic
+        workcell camera rendered by the web cockpit (image +u -> base +x, image +v -> base +y).
+        """
+        x = camera["x_min"] + (u / w) * (camera["x_max"] - camera["x_min"])
+        y = camera["y_min"] + (v / h) * (camera["y_max"] - camera["y_min"])
+        return round(x, 3), round(y, 3)
+
+    def segment_workspace(
+        self,
+        query: Optional[str] = None,
+        image_data_url: Optional[str] = None,
+        camera: Optional[dict] = None,
+    ) -> dict:
+        """
+        Workcell perception.
+
+        * Live mode (MODEL_API_KEY set and an overhead image supplied): every workcell
+          object is located by Meta SAM 3.1 from its visual prompt; the detected box
+          centre is projected into the robot base frame. Z comes from the known part
+          height on the table (a single overhead RGB view cannot measure height).
+        * Registry mode (no key or no image): the calibrated workcell registry is returned
+          as-is and clearly labelled as such — no confidence values are invented.
         """
         t0 = time.time()
         q = (query or "").strip().lower()
-        sam_api_verified = False
+        live = bool(self.muse_api_key and image_data_url and camera)
+        errors = []
+        detections = {}
 
-        # If a specific semantic query is passed and API key is set, query Meta SAM 3.1 API
-        if q and self.muse_api_key:
-            try:
-                payload = json.dumps({
-                    "model": self.sam_model,
-                    "input": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "input_text", "text": q}
-                            ],
-                        }
-                    ],
-                }).encode("utf-8")
-                req = urllib.request.Request(
-                    f"{self.muse_api_base}/responses",
-                    data=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {self.muse_api_key}",
-                    },
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=5.0) as resp:
-                    if resp.status == 200:
-                        sam_api_verified = True
-            except Exception as e:
-                print(f"[sam-3.1] Using calibrated workcell map ({e})")
+        if live:
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _run(obj):
+                try:
+                    return obj["id"], self._sam_detect(obj["sam_prompt"], image_data_url), None
+                except Exception as e:  # report, never hide
+                    return obj["id"], [], f"{obj['label']}: {e}"
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                for oid, boxes, err in pool.map(_run, self._workcell_objects):
+                    if err:
+                        errors.append(err)
+                    if boxes:
+                        detections[oid] = max(boxes, key=lambda b: b.get("c", 0.0))
 
         objects = []
         for obj in self._workcell_objects:
-            matched = True
+            item = {k: v for k, v in obj.items() if k != "sam_prompt"}
+            det = detections.get(obj["id"])
+            if det:
+                w, h = det["w"], det["h"]
+                u = (det["x1"] + det["x2"] + 1) / 2.0
+                v = (det["y1"] + det["y2"] + 1) / 2.0
+                bx, by = self._pixel_to_base(u, v, w, h, camera)
+                item["xyz"] = [bx, by, obj["xyz"][2]]
+                item["bbox_norm"] = [
+                    round(det["x1"] / w, 4), round(det["y1"] / h, 4),
+                    round((det["x2"] - det["x1"] + 1) / w, 4), round((det["y2"] - det["y1"] + 1) / h, 4),
+                ]
+                item["confidence"] = det.get("c")
+                item["source"] = "sam-3.1"
+                item["detected"] = True
+            else:
+                item["confidence"] = None
+                item["source"] = "calibrated_registry"
+                item["detected"] = False if live else None
             if q:
-                matched = (
+                item["highlighted"] = (
                     q in obj["label"].lower()
                     or q in obj["category"].lower()
                     or any(q in a for a in obj["aliases"])
                 )
-            item = dict(obj)
-            item["highlighted"] = matched if q else True
+            else:
+                item["highlighted"] = True
             objects.append(item)
 
-        latency_ms = round((time.time() - t0) * 1000.0 + 14.2, 1)
+        # Keep downstream grounding consistent with what perception just reported.
+        for obj in self._workcell_objects:
+            det_item = next((o for o in objects if o["id"] == obj["id"]), None)
+            if det_item and det_item["source"] == "sam-3.1":
+                obj["xyz"] = list(det_item["xyz"])
+
+        n_detected = sum(1 for o in objects if o["source"] == "sam-3.1")
+        self._last_perception_live = n_detected > 0
         return {
             "success": True,
-            "vision_model": f"Meta {self.sam_model}",
+            "mode": "sam_live" if n_detected else "registry",
+            "vision_model": f"Meta {self.sam_model}" if n_detected else "Calibrated workcell registry",
             "api_connected": bool(self.muse_api_key),
-            "sam_api_verified": sam_api_verified,
-            "camera_frame": "overhead_rgbd_ur5e_base",
-            "calibration_matrix": "extrinsic_iso9283_ur5e",
-            "latency_ms": latency_ms,
+            "sam_api_verified": n_detected > 0,
+            "detected_count": n_detected,
+            "camera_frame": "topdown_ortho_ur5e_base" if live else None,
+            "latency_ms": round((time.time() - t0) * 1000.0, 1),
+            "errors": errors,
             "objects": objects,
         }
 
@@ -435,7 +550,8 @@ class ForosBridge:
             target = grounded[0]
             tx, ty, tz = target["xyz"]
             if any(k in lower for k in ("pick", "grab", "grasp", "take", "lift", "transfer", "move", "prends", "deplace")):
-                dx, dy, dz = -0.28, -0.22, 0.20
+                tray = next((o for o in self._workcell_objects if o["id"] == "zone_tray_delta"), None)
+                dx, dy, dz = tray["xyz"] if tray else (-0.28, -0.22, 0.20)
                 grounded_prompt = (
                     f"{text} [SAM-3.1 Grounded Coordinates: pick {target['label']} at x={tx} y={ty} z={tz}, "
                     f"place on Inspection Tray D at x={dx} y={dy} z={dz}, safe clearance z=0.40]"
@@ -572,12 +688,12 @@ class ForosBridge:
             "5. Pick-and-place tasks MUST follow: home -> speed -> gripper open -> approach (z=0.40) -> "
             "descend to pick (z>=0.15) -> gripper close -> wait -> lift to clearance (z=0.40) -> "
             "transit above place (z=0.40) -> descend to place -> gripper open -> wait -> retract (z=0.40) -> home.\n"
-            f"SAM 3.1 CALIBRATED WORKCELL OBJECTS: {vision_summary}\n\n"
+            f"WORKCELL OBJECTS (base frame, meters): {vision_summary}\n\n"
             "Respond strictly with a valid JSON object matching this schema (English only, no markdown fences, no emojis):\n"
             "{\n"
             '  "reasoning_steps": [\n'
-            '    {"phase": "SAM 3.1 PERCEPTION", "title": "...", "detail": "..."},\n'
-            '    {"phase": "MUSE-SPARK-1.3 PLANNER", "title": "...", "detail": "..."},\n'
+            '    {"phase": "PERCEPTION", "title": "...", "detail": "..."},\n'
+            '    {"phase": "PLANNER", "title": "...", "detail": "..."},\n'
             '    {"phase": "KINEMATIC SAFETY", "title": "...", "detail": "..."},\n'
             '    {"phase": "FOROS COMPILER", "title": "...", "detail": "..."}\n'
             "  ],\n"
@@ -634,17 +750,20 @@ class ForosBridge:
         ops: list,
         grounded_objects: list,
         engine_label: str,
+        perception_phase: str = "WORKCELL REGISTRY",
+        planner_phase: str = "DETERMINISTIC PLANNER (OFFLINE)",
     ) -> list:
         steps = []
         if grounded_objects:
             obj_desc = ", ".join(
-                f"{o['label']} at ({o['xyz'][0]:+.2f}, {o['xyz'][1]:+.2f}, {o['xyz'][2]:+.2f}) m [conf {o['confidence']*100:.1f}%]"
+                f"{o['label']} at ({o['xyz'][0]:+.2f}, {o['xyz'][1]:+.2f}, {o['xyz'][2]:+.2f}) m"
+                + (f" [SAM conf {o['confidence']*100:.1f}%]" if o.get("confidence") is not None else "")
                 for o in grounded_objects
             )
             steps.append({
-                "phase": "SAM 3.1 PERCEPTION",
-                "title": "Workcell Instance Segmentation & 3D Coordinate Grounding",
-                "detail": f"Resolved semantic target(s) from overhead RGB-D calibration frame: {obj_desc}.",
+                "phase": perception_phase,
+                "title": "Workcell Object Grounding",
+                "detail": f"Resolved semantic target(s) to base-frame coordinates: {obj_desc}.",
             })
         else:
             steps.append({
@@ -659,7 +778,7 @@ class ForosBridge:
         vel_str = f"{speed_ops[0].get('velocity', 0.25):.2f} m/s" if speed_ops else "0.25 m/s"
 
         steps.append({
-            "phase": "MUSE-SPARK-1.3 PLANNER",
+            "phase": planner_phase,
             "title": f"Multi-Stage Sequence Synthesis ({len(ops)} Atomic Primitives)",
             "detail": (
                 f"Synthesized {len(move_ops)} linear Cartesian waypoint(s) and "
@@ -681,11 +800,11 @@ class ForosBridge:
 
         steps.append({
             "phase": "KINEMATIC SAFETY",
-            "title": "ISO-10218 Workspace Envelope & Singularity Validation",
+            "title": "Workspace Envelope Check (ISO 10218-inspired limits)",
             "detail": (
                 f"Verified peak radial reach r_max = {max_reach:.3f} m (limit <= 0.800 m) and "
                 f"minimum tool height z_min = {min_z:.3f} m (collision floor >= 0.150 m). "
-                f"Enforced linear interpolation (movel) to prevent joint-space sweeping."
+                f"Linear interpolation (movel) used between waypoints."
             ),
         })
 
@@ -822,13 +941,13 @@ class ForosBridge:
     @staticmethod
     def _validate_industrial_directive(text: str, grounded_objects: list) -> Optional[str]:
         """
-        ISO-10218 Pre-Inference Gate:
+        Pre-inference gate (ISO 10218-inspired limits):
         Reject conversational chitchat, non-operational questions, or unrelated text
         so the robot never executes a hallucinated trajectory on non-robotic input.
         """
         clean = text.strip()
         if not clean:
-            return "ISO-10218 SAFETY GATE: Empty directive rejected."
+            return "SAFETY GATE: Empty directive rejected."
         lower = clean.lower()
 
         if grounded_objects:
@@ -853,14 +972,14 @@ class ForosBridge:
             return None
 
         return (
-            f"ISO-10218 SAFETY GATE: Rejected non-operational directive ({clean!r}). "
+            f"SAFETY GATE: Rejected non-operational directive ({clean!r}). "
             "No robot motion generated. Specify a valid motion, actuator, or workcell task."
         )
 
     @classmethod
     def _enforce_iso10218_envelope(cls, ops: list, prompt: str) -> tuple[list, list]:
         """
-        Strictly enforce UR5e ISO-10218 kinematic envelope on all JSON ops:
+        Enforce the UR5e workspace envelope (ISO 10218-inspired limits) on all JSON ops:
           - z in [0.15 m, 0.75 m] (table collision floor & upper height limit)
           - r_xy = sqrt(x^2 + y^2) >= 0.22 m (central base column singularity guard)
           - r = sqrt(x^2 + y^2 + z^2) <= 0.78 m (spherical reach envelope)
@@ -1083,7 +1202,7 @@ class ForosBridge:
 
     def _check_safety_rejection(self, text: str, grounded_objects: list) -> Optional[dict]:
         """
-        Deterministic ISO-10218 Pre-Execution Safety & Validity Check:
+        Deterministic pre-execution Safety & Validity Check:
           1. Rejects explicit out-of-reach coordinates (r > 0.80 m) with exact calculation.
           2. Rejects explicit below-table coordinates (z < 0.15 m) with exact calculation.
           3. Rejects non-robotic / conversational prompts with zero motion emitted.
@@ -1105,7 +1224,7 @@ class ForosBridge:
                     "ops": [{"op": "home"}, {"op": "stop"}],
                     "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
                     "safety_rejected": True,
-                    "rejection_reason": f"ISO-10218 Table Collision Violation: z={cz:.3f}m < 0.150m floor",
+                    "rejection_reason": f"Table Collision Violation: z={cz:.3f}m < 0.150m floor",
                     "reasoning_steps": [
                         {
                             "phase": "SEMANTIC PARSING",
@@ -1116,14 +1235,14 @@ class ForosBridge:
                         {
                             "phase": "KINEMATIC SAFETY",
                             "status": "REJECTED (z < 0.15m)",
-                            "title": "ISO-10218 Table Collision Floor Violation Detected",
+                            "title": "Table Collision Floor Violation Detected",
                             "detail": (
                                 f"SAFETY REJECTION: Requested height z = {cz:.3f} m violates the hard workcell table "
                                 f"collision floor (z_min >= 0.150 m). Downward motion blocked to prevent tool impact."
                             ),
                         },
                         {
-                            "phase": "MUSE-SPARK-1.3 PLANNER",
+                            "phase": "PRE-PLANNING SAFETY GATE",
                             "status": "HOLD ENGAGED",
                             "title": "Zero-Motion Protective Hold Synthesized",
                             "detail": "Suppressed unsafe Cartesian waypoint; emitted safe home + immediate stop hold sequence.",
@@ -1145,7 +1264,7 @@ class ForosBridge:
                     "ops": [{"op": "home"}, {"op": "stop"}],
                     "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
                     "safety_rejected": True,
-                    "rejection_reason": f"ISO-10218 Reach Envelope Violation: r={r:.3f}m > 0.800m max reach",
+                    "rejection_reason": f"Reach Envelope Violation: r={r:.3f}m > 0.800m max reach",
                     "reasoning_steps": [
                         {
                             "phase": "SEMANTIC PARSING",
@@ -1156,14 +1275,14 @@ class ForosBridge:
                         {
                             "phase": "KINEMATIC SAFETY",
                             "status": "REJECTED (r > 0.80m)",
-                            "title": "ISO-10218 Spherical Reach Envelope Exceeded",
+                            "title": "Spherical Reach Envelope Exceeded",
                             "detail": (
                                 f"SAFETY REJECTION: Computed radial reach r = sqrt({cx:.2f}^2 + {cy:.2f}^2 + {cz:.2f}^2) "
                                 f"= {r:.3f} m exceeds UR5e maximum spherical workspace limit (r_max <= 0.800 m)."
                             ),
                         },
                         {
-                            "phase": "MUSE-SPARK-1.3 PLANNER",
+                            "phase": "PRE-PLANNING SAFETY GATE",
                             "status": "HOLD ENGAGED",
                             "title": "Out-of-Envelope Trajectory Blocked",
                             "detail": "Aborted unreachable waypoint generation; emitted safe home + stop protective sequence.",
@@ -1180,7 +1299,7 @@ class ForosBridge:
                     "engine_label": self.active_engine_name,
                 }
 
-        # 2) ISO-10218 Disambiguation & Object Verification Gate
+        # 2) Disambiguation & Object Verification Gate
         # Prevent silent substitution of nonexistent, ambiguous, or attribute-conflicted objects
         color_conflicts = [
             (r'\b(red|rouge|crimson|vermeil)\s+(block|bloc|cube|billet)\b', "red block"),
@@ -1211,20 +1330,20 @@ class ForosBridge:
                     "ops": [{"op": "home"}, {"op": "stop"}],
                     "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
                     "safety_rejected": True,
-                    "rejection_reason": f"ISO-10218 Disambiguation Safety Rejection: Object '{detected_str}' not detected in SAM 3.1 workcell perception (silent substitution prohibited)",
+                    "rejection_reason": f"Disambiguation Safety Rejection: Object '{detected_str}' not found in {self._perception_name} (silent substitution prohibited)",
                     "reasoning_steps": [
                         {
-                            "phase": "SAM 3.1 PERCEPTION",
+                            "phase": self._perception_phase,
                             "status": "REJECTED (OBJECT NOT FOUND)",
                             "title": "Workcell Semantic Disambiguation Gate",
                             "detail": (
-                                f"SAFETY REJECTION: Directive requested target entity '{detected_str}', but SAM 3.1 perception "
+                                f"SAFETY REJECTION: Directive requested target entity '{detected_str}', but {self._perception_name} "
                                 f"identifies only [Aluminum Block A, Steel Spur Gear B, PCB Sensor Module C, Inspection Tray D]. "
-                                f"Silent substitution of nonexistent or ambiguous objects is strictly prohibited by ISO-10218."
+                                f"Silent substitution of nonexistent or ambiguous objects is not allowed by the FOROS safety policy."
                             ),
                         },
                         {
-                            "phase": "MUSE-SPARK-1.3 PLANNER",
+                            "phase": "PRE-PLANNING SAFETY GATE",
                             "status": "HOLD ENGAGED",
                             "title": "Disambiguation Safe Hold Synthesized",
                             "detail": (
@@ -1258,10 +1377,10 @@ class ForosBridge:
                 "ops": [{"op": "home"}, {"op": "stop"}],
                 "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
                 "safety_rejected": True,
-                "rejection_reason": "ISO-10218 Disambiguation Safety Rejection: Source workpiece not detected in SAM 3.1 perception (silent substitution prohibited)",
+                "rejection_reason": f"Disambiguation Safety Rejection: Source workpiece not found in {self._perception_name} (silent substitution prohibited)",
                 "reasoning_steps": [
                     {
-                        "phase": "SAM 3.1 PERCEPTION",
+                        "phase": self._perception_phase,
                         "status": "REJECTED (SOURCE MISSING)",
                         "title": "Workpiece Disambiguation Failure",
                         "detail": (
@@ -1270,7 +1389,7 @@ class ForosBridge:
                         ),
                     },
                     {
-                        "phase": "MUSE-SPARK-1.3 PLANNER",
+                        "phase": "PRE-PLANNING SAFETY GATE",
                         "status": "HOLD ENGAGED",
                         "title": "Ambiguous Trajectory Blocked",
                         "detail": "Refused to synthesize blind pick motion without calibrated source workpiece coordinates.",
@@ -1298,10 +1417,10 @@ class ForosBridge:
                 "ops": [{"op": "home"}, {"op": "stop"}],
                 "raw": json.dumps([{"op": "home"}, {"op": "stop"}]),
                 "safety_rejected": True,
-                "rejection_reason": "ISO-10218 Disambiguation Safety Rejection: Ambiguous manipulation directive. Specify a calibrated workcell object (Block A, Gear B, Sensor C) or Cartesian coordinates.",
+                "rejection_reason": "Disambiguation Safety Rejection: Ambiguous manipulation directive. Specify a calibrated workcell object (Block A, Gear B, Sensor C) or Cartesian coordinates.",
                 "reasoning_steps": [
                     {
-                        "phase": "SAM 3.1 PERCEPTION",
+                        "phase": self._perception_phase,
                         "status": "REJECTED (AMBIGUOUS TARGET)",
                         "title": "Unspecified Target Object",
                         "detail": f"Directive ({clean!r}) contains manipulation intent but lacks specific workpiece identification. Silent guessing prohibited.",
@@ -1310,7 +1429,7 @@ class ForosBridge:
                         "phase": "KINEMATIC SAFETY",
                         "status": "STANDBY HOLD",
                         "title": "Protective Hold Engaged",
-                        "detail": "Blocked blind trajectory generation per ISO-10218 safety standards.",
+                        "detail": "Blocked blind trajectory generation per the FOROS safety policy.",
                     },
                 ],
                 "grounded_objects": [],
@@ -1337,7 +1456,7 @@ class ForosBridge:
                         "phase": "KINEMATIC SAFETY",
                         "status": "STANDBY HOLD",
                         "title": "Zero-Motion Standby Enforced",
-                        "detail": "Blocked trajectory synthesis on conversational/ambiguous input per ISO-10218 safety policy.",
+                        "detail": "Blocked trajectory synthesis on conversational/ambiguous input per the FOROS safety policy.",
                     },
                 ],
                 "grounded_objects": [],
@@ -1347,13 +1466,31 @@ class ForosBridge:
 
         return None
 
+    @staticmethod
+    def _sanitize_model_steps(steps) -> list:
+        """Keep the model's own reasoning trace (text only, bounded)."""
+        out = []
+        if not isinstance(steps, list):
+            return out
+        for st in steps[:6]:
+            if not isinstance(st, dict):
+                continue
+            out.append({
+                "phase": f"MUSE-SPARK-1.3 · {str(st.get('phase', 'REASONING'))[:40]}",
+                "title": str(st.get("title", ""))[:140],
+                "detail": str(st.get("detail", ""))[:600],
+                "source": "model",
+            })
+        return out
+
     def infer_with_reasoning(self, text: str) -> dict:
         """
-        Primary inference pipeline for the Meta Global AI Developer Hackathon:
-          1. Validates directive against ISO-10218 reach, floor, and operational intent gates.
-          2. Grounds object names in sequence using SAM 3.1 workcell calibration.
-          3. Calls Meta Muse-Spark-1.3 API (https://api.meta.ai/v1/chat/completions).
-          4. Deterministically locks grounded object coordinates to the single-source-of-truth SAM 3.1 panel.
+        Inference pipeline:
+          1. Pre-planning safety gates (reach, floor, unknown/ambiguous objects, non-operational text).
+          2. Ground object names to the workcell (SAM 3.1 detections when live, else the registry).
+          3. Live: Meta Muse Spark 1.3 plans (chat/completions) and its reasoning trace is kept verbatim.
+             Offline: a deterministic planner is used and labelled as such.
+          4. Deterministic verifier: coordinate lock to grounded objects + workspace envelope clamp.
         """
         grounded_prompt, grounded_objects = self._ground_prompt_with_vision(text)
 
@@ -1361,32 +1498,42 @@ class ForosBridge:
         if rejection_res is not None:
             return rejection_res
 
-        # Primary Path: Live Meta Muse-Spark-1.3 API call
         muse_res = self._muse_infer(grounded_prompt, grounded_objects)
         if muse_res is not None:
+            model_ops = [dict(o) for o in muse_res["ops"]]
             ops = self._correct_ops_from_prompt(muse_res["ops"], grounded_prompt)
             ops = self._lock_grounded_object_coordinates(ops, grounded_objects, text)
             ops, clamp_notes = self._enforce_iso10218_envelope(ops, text)
-            # Always rebuild spatial reasoning from the locked, verified ops so trace and JSON match 100%
-            reasoning_steps = self._build_spatial_reasoning(
-                text, ops, grounded_objects, self.active_engine_name
-            )
+            verifier = self._build_spatial_reasoning(
+                text, ops, grounded_objects, self.active_engine_name,
+                perception_phase=self._perception_phase, planner_phase="FOROS VERIFIER",
+            )[-2:]
+            corrected = sum(1 for a_, b_ in zip(model_ops, ops) if a_ != b_) + abs(len(model_ops) - len(ops))
+            if corrected:
+                verifier.insert(0, {
+                    "phase": "FOROS VERIFIER",
+                    "title": f"{corrected} model op(s) corrected before compilation",
+                    "detail": "Waypoints were locked to grounded object coordinates and/or clamped to the workspace envelope.",
+                })
             return {
                 "ops": ops,
                 "raw": json.dumps(ops),
-                "reasoning_steps": reasoning_steps,
+                "reasoning_steps": self._sanitize_model_steps(muse_res.get("reasoning_steps")) + verifier,
+                "model_ops": model_ops,
                 "grounded_objects": grounded_objects,
                 "safety_notes": clamp_notes,
                 "engine_mode": "muse_api_live",
                 "engine_label": self.active_engine_name,
             }
 
-        # Fallback Path: Deterministic Spatial Grounding Planner
         spatial_ops = self._synthesize_spatial_plan(text, grounded_objects)
         spatial_ops = self._lock_grounded_object_coordinates(spatial_ops, grounded_objects, text)
         spatial_ops, clamp_notes = self._enforce_iso10218_envelope(spatial_ops, text)
         reasoning_steps = self._build_spatial_reasoning(
-            text, spatial_ops, grounded_objects, self.active_engine_name
+            text, spatial_ops, grounded_objects,
+            "Offline deterministic planner + FOROS compiler",
+            perception_phase=self._perception_phase,
+            planner_phase="DETERMINISTIC PLANNER (OFFLINE)",
         )
         return {
             "ops": spatial_ops,
@@ -1395,7 +1542,7 @@ class ForosBridge:
             "grounded_objects": grounded_objects,
             "safety_notes": clamp_notes,
             "engine_mode": "muse_spatial_fallback",
-            "engine_label": self.active_engine_name,
+            "engine_label": "Offline deterministic planner + FOROS compiler",
         }
 
     # ── URScript sending ──────────────────────────────────────────────────────
