@@ -256,6 +256,8 @@ class ForosBridge:
         ]
 
         self._last_perception_live = False
+        # Immutable reference positions; detections never overwrite these.
+        self._registry_xyz = {o["id"]: list(o["xyz"]) for o in self._workcell_objects}
         self.history: List[BridgeResult] = []
         self._execution_state = {
             "status": "IDLE",
@@ -421,6 +423,9 @@ class ForosBridge:
         y = camera["y_min"] + (v / h) * (camera["y_max"] - camera["y_min"])
         return round(x, 3), round(y, 3)
 
+    SAM_MIN_CONF = 0.5      # below this a SAM box is not trusted
+    SAM_MAX_SHIFT = 0.08    # m; a box farther than this from the expected position is a mismatch
+
     def segment_workspace(
         self,
         query: Optional[str] = None,
@@ -463,12 +468,30 @@ class ForosBridge:
         for obj in self._workcell_objects:
             item = {k: v for k, v in obj.items() if k != "sam_prompt"}
             det = detections.get(obj["id"])
+            ref = self._registry_xyz[obj["id"]]
+            item["xyz"] = list(ref)
             if det:
                 w, h = det["w"], det["h"]
                 u = (det["x1"] + det["x2"] + 1) / 2.0
                 v = (det["y1"] + det["y2"] + 1) / 2.0
                 bx, by = self._pixel_to_base(u, v, w, h, camera)
-                item["xyz"] = [bx, by, obj["xyz"][2]]
+                conf = det.get("c")
+                shift = math.hypot(bx - ref[0], by - ref[1])
+                reason = None
+                if conf is None or conf < self.SAM_MIN_CONF:
+                    reason = f"low confidence ({conf})"
+                elif shift > self.SAM_MAX_SHIFT:
+                    reason = f"box at ({bx:+.3f}, {by:+.3f}) is {shift:.3f} m from the expected position"
+                if reason:
+                    errors.append(f"{obj['label']}: SAM box rejected — {reason}")
+                    item["confidence"] = None
+                    item["source"] = "calibrated_registry"
+                    item["detected"] = False
+                    item["rejected_detection"] = {"xyz": [bx, by], "confidence": conf, "reason": reason}
+                    item["highlighted"] = True
+                    objects.append(item)
+                    continue
+                item["xyz"] = [bx, by, ref[2]]
                 item["bbox_norm"] = [
                     round(det["x1"] / w, 4), round(det["y1"] / h, 4),
                     round((det["x2"] - det["x1"] + 1) / w, 4), round((det["y2"] - det["y1"] + 1) / h, 4),
@@ -490,11 +513,13 @@ class ForosBridge:
                 item["highlighted"] = True
             objects.append(item)
 
-        # Keep downstream grounding consistent with what perception just reported.
+        # Planning uses this scan's accepted detections, else the immutable registry
+        # position (never a previous scan's value, so errors cannot accumulate).
         for obj in self._workcell_objects:
             det_item = next((o for o in objects if o["id"] == obj["id"]), None)
-            if det_item and det_item["source"] == "sam-3.1":
-                obj["xyz"] = list(det_item["xyz"])
+            obj["xyz"] = list(det_item["xyz"]) if det_item else list(self._registry_xyz[obj["id"]])
+            obj["source"] = det_item["source"] if det_item else "calibrated_registry"
+            obj["confidence"] = det_item.get("confidence") if det_item else None
 
         n_detected = sum(1 for o in objects if o["source"] == "sam-3.1")
         self._last_perception_live = n_detected > 0
@@ -757,7 +782,7 @@ class ForosBridge:
         if grounded_objects:
             obj_desc = ", ".join(
                 f"{o['label']} at ({o['xyz'][0]:+.2f}, {o['xyz'][1]:+.2f}, {o['xyz'][2]:+.2f}) m"
-                + (f" [SAM conf {o['confidence']*100:.1f}%]" if o.get("confidence") is not None else "")
+                + (f" [SAM 3.1 {o['confidence']*100:.1f}%]" if o.get("confidence") is not None else " [registry, not confirmed by SAM]")
                 for o in grounded_objects
             )
             steps.append({
